@@ -1,15 +1,20 @@
 //! Secret Service (libsecret) credential storage.
 //!
-//! Stores three secrets per Proton account:
-//! - `password` — the Proton account password (used to derive the SRP proof
-//!   and to unlock the user's PGP private keys).
-//! - `totp_secret` — the Base32 TOTP key (the *seed*, not a 6-digit code), so
-//!   we can re-authenticate unattended.
-//! - `refresh_token` — the most recent OAuth-style refresh token from `/auth`,
-//!   so most launches don't need to repeat full SRP.
+//! Stores the four pieces of state needed to resume a Proton Drive
+//! session without re-running SRP:
 //!
-//! Items are tagged with `application=protondrive-linux` and `account=<email>`
-//! so they show up in the Seahorse / KWalletManager UI grouped by account.
+//! - `uid` — the session UID returned by `/auth`.
+//! - `access_token` — the current access token.
+//! - `refresh_token` — the most recent refresh token.
+//! - `salted_key_pass` — the salted mailbox key-pass derivative used to
+//!   unlock the user's PGP keys. We **never** store the raw account
+//!   password (per Proton's third-party-app policy).
+//! - `totp_secret` — the Base32 TOTP key seed (so we can complete 2FA
+//!   unattended on token refresh).
+//!
+//! Items are tagged with `application=protondrive-linux` and
+//! `account=<email>` so they show up grouped by account in
+//! Seahorse / KWalletManager.
 
 use secret_service::{EncryptionType, SecretService};
 
@@ -17,20 +22,24 @@ use crate::{Error, Result};
 
 const APP_TAG: &str = "protondrive-linux";
 
-/// Names for the three secret kinds we persist.
+/// Names for the secret kinds we persist.
 #[derive(Debug, Clone, Copy)]
 pub enum Slot {
-    Password,
-    TotpSecret,
+    Uid,
+    AccessToken,
     RefreshToken,
+    SaltedKeyPass,
+    TotpSecret,
 }
 
 impl Slot {
     fn key(self) -> &'static str {
         match self {
-            Slot::Password => "password",
-            Slot::TotpSecret => "totp_secret",
+            Slot::Uid => "uid",
+            Slot::AccessToken => "access_token",
             Slot::RefreshToken => "refresh_token",
+            Slot::SaltedKeyPass => "salted_key_pass",
+            Slot::TotpSecret => "totp_secret",
         }
     }
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build a portable AppImage from a release-built workspace.
-# Expects: target/release/protondrive{,-fs,-cli} already built.
+# Expects: target/release/{protondrive,protondrived,protondrive-cli} already built.
 # Produces: protondrive-linux-<VERSION>-x86_64.AppImage in $PWD.
 set -euo pipefail
 
@@ -13,7 +13,7 @@ mkdir -p "$WORK/usr/bin" "$WORK/usr/share/applications" "$WORK/usr/share/metainf
          "$WORK/usr/share/icons/hicolor/scalable/apps" "$WORK/usr/lib"
 
 install -Dm0755 "$ROOT/target/release/protondrive"      "$WORK/usr/bin/protondrive"
-install -Dm0755 "$ROOT/target/release/protondrive-fs"   "$WORK/usr/bin/protondrive-fs"
+install -Dm0755 "$ROOT/target/release/protondrived"     "$WORK/usr/bin/protondrived"
 install -Dm0755 "$ROOT/target/release/protondrive-cli"  "$WORK/usr/bin/protondrive-cli"
 
 install -Dm0644 "$ROOT/packaging/desktop/me.proton.drive.Linux.desktop" \
@@ -23,7 +23,6 @@ install -Dm0644 "$ROOT/packaging/desktop/me.proton.drive.Linux.metainfo.xml" \
 install -Dm0644 "$ROOT/data/icons/me.proton.drive.Linux.svg" \
                 "$WORK/usr/share/icons/hicolor/scalable/apps/me.proton.drive.Linux.svg"
 
-# AppImage requires top-level .desktop, AppRun, and an icon with the same name.
 cp "$WORK/usr/share/applications/me.proton.drive.Linux.desktop" "$WORK/me.proton.drive.Linux.desktop"
 cp "$WORK/usr/share/icons/hicolor/scalable/apps/me.proton.drive.Linux.svg" "$WORK/me.proton.drive.Linux.svg"
 ln -sf me.proton.drive.Linux.svg "$WORK/.DirIcon"
@@ -37,14 +36,11 @@ exec "$HERE/usr/bin/protondrive" "$@"
 EOF
 chmod +x "$WORK/AppRun"
 
-# Bundle GTK/libadwaita/libsecret with linuxdeploy (must be in PATH).
 linuxdeploy --appdir "$WORK" \
     --plugin gtk \
     --output appimage \
     --desktop-file "$WORK/me.proton.drive.Linux.desktop" \
     --icon-file    "$WORK/me.proton.drive.Linux.svg"
 
-# linuxdeploy names the file "Proton_Drive-x86_64.AppImage"; rename to a
-# stable, version-bearing name.
 mv ./*-x86_64.AppImage "protondrive-linux-${VERSION}-x86_64.AppImage"
 echo "built: protondrive-linux-${VERSION}-x86_64.AppImage"

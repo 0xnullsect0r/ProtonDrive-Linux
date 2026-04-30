@@ -22,8 +22,11 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             pkg-config build-essential \
             libgtk-4-dev libadwaita-1-dev \
-            libfuse3-dev libsecret-1-dev libssl-dev \
+            libsecret-1-dev libssl-dev \
             libdbus-1-dev
+
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.22' }
 
       - uses: dtolnay/rust-toolchain@stable
         with:

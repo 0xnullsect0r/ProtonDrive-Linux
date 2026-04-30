@@ -8,6 +8,7 @@ repository.workspace  = true
 description = "Core library for ProtonDrive-Linux: auth, API, crypto, cache and sync."
 
 [dependencies]
+protondrive-bridge = { path = "../protondrive-bridge" }
 tokio.workspace        = true
 futures.workspace      = true
 async-trait.workspace  = true

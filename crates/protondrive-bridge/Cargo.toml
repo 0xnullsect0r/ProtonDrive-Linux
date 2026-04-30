@@ -1,0 +1,23 @@
+[package]
+name        = "protondrive-bridge"
+version.workspace     = true
+edition.workspace     = true
+license.workspace     = true
+authors.workspace     = true
+repository.workspace  = true
+rust-version.workspace = true
+
+[lib]
+name = "protondrive_bridge"
+
+[dependencies]
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+thiserror   = { workspace = true }
+tokio       = { workspace = true }
+tracing     = { workspace = true }
+libc        = { workspace = true }
+once_cell   = { workspace = true }
+
+[build-dependencies]
+which = "6"

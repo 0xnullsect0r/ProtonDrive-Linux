@@ -22,6 +22,7 @@ gtk4.workspace         = true
 libadwaita.workspace   = true
 glib.workspace         = true
 ksni.workspace         = true
+async-channel = "2"
 
 # --- packaging metadata ---------------------------------------------------
 # `cargo deb -p protondrive-ui --no-build` reads this and builds a single
@@ -34,12 +35,12 @@ license-file = ["../../LICENSE", "0"]
 extended-description = "Unofficial native Linux client for Proton Drive: FUSE mount with local cache, offline pinning, GTK4 setup UI and system-tray icon."
 section = "net"
 priority = "optional"
-depends = "$auto, fuse3, libsecret-1-0, libgtk-4-1, libadwaita-1-0"
+depends = "$auto, libsecret-1-0, libgtk-4-1, libadwaita-1-0"
 recommends = "gnome-shell-extension-appindicator | plasma-workspace | budgie-desktop | cinnamon"
 assets = [
   ["../../target/release/protondrive",       "usr/bin/",                                    "755"],
-  ["../../target/release/protondrive-fs",    "usr/bin/",                                    "755"],
   ["../../target/release/protondrive-cli",   "usr/bin/",                                    "755"],
+  ["../../target/release/protondrived",      "usr/bin/",                                    "755"],
   ["../../packaging/desktop/me.proton.drive.Linux.desktop",      "usr/share/applications/", "644"],
   ["../../packaging/desktop/me.proton.drive.Linux.metainfo.xml", "usr/share/metainfo/",     "644"],
   ["../../packaging/systemd/protondrive.service",                "usr/lib/systemd/user/",   "644"],

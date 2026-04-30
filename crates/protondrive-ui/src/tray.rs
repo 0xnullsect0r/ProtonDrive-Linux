@@ -15,12 +15,13 @@ impl Tray for ProtonTray {
         "folder-remote-symbolic".into()
     }
     fn title(&self) -> String {
-        "Proton Drive".into()
+        "Proton Drive (unofficial)".into()
     }
     fn tool_tip(&self) -> ksni::ToolTip {
+        let root = self.daemon.config.lock().sync_root.clone();
         ksni::ToolTip {
-            title: "Proton Drive".into(),
-            description: format!("Mounted at {}", self.daemon.config.mount_point.display()),
+            title: "Proton Drive (unofficial)".into(),
+            description: format!("Syncing {}", root.display()),
             icon_name: "folder-remote-symbolic".into(),
             icon_pixmap: vec![],
         }
@@ -30,16 +31,19 @@ impl Tray for ProtonTray {
             StandardItem {
                 label: "Open Proton Drive folder".into(),
                 activate: Box::new(|t: &mut Self| {
-                    let _ = std::process::Command::new("xdg-open")
-                        .arg(&t.daemon.config.mount_point)
-                        .spawn();
+                    let root = t.daemon.config.lock().sync_root.clone();
+                    let _ = std::process::Command::new("xdg-open").arg(root).spawn();
                 }),
                 ..Default::default()
             }
             .into(),
             StandardItem {
-                label: "Refresh now".into(),
-                activate: Box::new(|t: &mut Self| t.daemon.sync.refresh_now()),
+                label: "Open Proton Drive (web)".into(),
+                activate: Box::new(|_| {
+                    let _ = std::process::Command::new("xdg-open")
+                        .arg("https://drive.proton.me/")
+                        .spawn();
+                }),
                 ..Default::default()
             }
             .into(),
@@ -56,7 +60,6 @@ impl Tray for ProtonTray {
 
 pub fn run(daemon: Daemon) -> Result<()> {
     let service = ksni::TrayService::new(ProtonTray { daemon });
-    // Spawns its own background thread; blocks here until the bus connection drops.
     service.spawn();
     std::thread::park();
     Ok(())

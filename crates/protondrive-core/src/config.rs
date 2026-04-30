@@ -17,8 +17,8 @@ const APP: &str = "protondrive";
 /// User-visible configuration. Persisted as TOML.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    /// Where to mount the FUSE filesystem.
-    pub mount_point: PathBuf,
+    /// The folder synced bidirectionally with Proton Drive.
+    pub sync_root: PathBuf,
     /// Maximum total size of the on-disk block cache, in bytes.
     pub cache_max_bytes: u64,
     /// Polling interval for the sync loop, in seconds.
@@ -29,10 +29,13 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
+        let home = directories::UserDirs::new()
+            .map(|d| d.home_dir().to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("/tmp"));
         Self {
-            mount_point: PathBuf::from("/mnt/ProtonDrive"),
+            sync_root: home.join("ProtonDrive"),
             cache_max_bytes: 5 * 1024 * 1024 * 1024, // 5 GiB
-            poll_interval_secs: 20,
+            poll_interval_secs: 30,
             email: None,
         }
     }
@@ -97,16 +100,16 @@ impl Config {
         Ok(())
     }
 
-    /// If `mount_point` is not writable (e.g. `/mnt/ProtonDrive` without setup),
-    /// fall back to `$XDG_DATA_HOME/ProtonDrive` and return the new path.
-    pub fn resolved_mount_point(&self, paths: &Paths) -> PathBuf {
-        if can_write(&self.mount_point) {
-            self.mount_point.clone()
+    /// If `sync_root` is not writable, fall back to
+    /// `$XDG_DATA_HOME/ProtonDrive` and return the new path.
+    pub fn resolved_sync_root(&self, paths: &Paths) -> PathBuf {
+        if can_write(&self.sync_root) {
+            self.sync_root.clone()
         } else {
             let fallback = paths.data_dir.join("ProtonDrive");
             tracing::warn!(
-                "configured mount point {:?} is not writable; falling back to {:?}",
-                self.mount_point,
+                "configured sync root {:?} is not writable; falling back to {:?}",
+                self.sync_root,
                 fallback
             );
             fallback

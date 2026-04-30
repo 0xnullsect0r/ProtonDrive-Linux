@@ -4,21 +4,22 @@ runtime-version: '46'
 sdk: org.gnome.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
+  - org.freedesktop.Sdk.Extension.golang
 command: protondrive
 finish-args:
   - --share=ipc
   - --share=network
   - --socket=fallback-x11
   - --socket=wayland
-  - --device=all                         # /dev/fuse + DRI for GTK
-  - --filesystem=host                    # so /mnt/ProtonDrive is reachable from outside the sandbox
-  - --talk-name=org.freedesktop.secrets  # libsecret keyring
+  - --device=dri
+  - --filesystem=home
+  - --talk-name=org.freedesktop.secrets
   - --talk-name=org.kde.StatusNotifierWatcher
   - --talk-name=org.freedesktop.Notifications
 build-options:
-  append-path: /usr/lib/sdk/rust-stable/bin
+  append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/golang/bin
   build-args:
-    - --share=network                    # let cargo fetch crates from crates.io at build time
+    - --share=network
   env:
     CARGO_HOME: /run/build/protondrive-linux/cargo
 modules:
@@ -28,7 +29,7 @@ modules:
       - cargo fetch --manifest-path Cargo.toml --verbose
       - cargo build --release --verbose
       - install -Dm0755 target/release/protondrive       /app/bin/protondrive
-      - install -Dm0755 target/release/protondrive-fs    /app/bin/protondrive-fs
+      - install -Dm0755 target/release/protondrived      /app/bin/protondrived
       - install -Dm0755 target/release/protondrive-cli   /app/bin/protondrive-cli
       - install -Dm0644 packaging/desktop/me.proton.drive.Linux.desktop      /app/share/applications/me.proton.drive.Linux.desktop
       - install -Dm0644 packaging/desktop/me.proton.drive.Linux.metainfo.xml /app/share/metainfo/me.proton.drive.Linux.metainfo.xml

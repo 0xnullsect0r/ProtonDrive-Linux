@@ -84,7 +84,9 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             pkg-config build-essential \
             libgtk-4-dev libadwaita-1-dev \
-            libfuse3-dev libsecret-1-dev libssl-dev libdbus-1-dev
+            libsecret-1-dev libssl-dev libdbus-1-dev
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.22' }
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: cargo build --release
@@ -94,7 +96,7 @@ jobs:
           name: release-bins-linux-x86_64
           path: |
             target/release/protondrive
-            target/release/protondrive-fs
+            target/release/protondrived
             target/release/protondrive-cli
 
   # ---------------------------------------------------------------------
@@ -110,7 +112,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             pkg-config libgtk-4-dev libadwaita-1-dev \
-            libfuse3-dev libsecret-1-dev libssl-dev libdbus-1-dev
+            libsecret-1-dev libssl-dev libdbus-1-dev
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.22' }
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Restore release binaries
@@ -138,8 +142,8 @@ jobs:
     steps:
       - name: Install build env
         run: |
-          dnf install -y rpm-build rpmdevtools cargo rust gcc make \
-            gtk4-devel libadwaita-devel fuse3-devel libsecret-devel \
+          dnf install -y rpm-build rpmdevtools cargo rust gcc make golang \
+            gtk4-devel libadwaita-devel libsecret-devel \
             openssl-devel dbus-devel pkgconf-pkg-config systemd-rpm-macros tar
       - uses: actions/download-artifact@v4
         with: { name: source-tarball, path: . }
@@ -208,7 +212,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libgtk-4-1 libadwaita-1-0 libfuse3-3 libsecret-1-0 \
+            libgtk-4-1 libadwaita-1-0 libsecret-1-0 \
             libgdk-pixbuf-2.0-0 libgdk-pixbuf2.0-bin librsvg2-common \
             file desktop-file-utils patchelf wget ca-certificates
       - name: Restore release binaries

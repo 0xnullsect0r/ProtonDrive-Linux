@@ -4,16 +4,16 @@
 pkgname=protondrive-linux
 pkgver={VERSION}
 pkgrel=1
-pkgdesc="Unofficial native Linux client for Proton Drive (FUSE mount + GTK4 UI + tray)"
+pkgdesc="Unofficial native Linux client for Proton Drive (sync engine + GTK4 UI + tray)"
 arch=('x86_64' 'aarch64')
 url="https://github.com/0xnullsect0r/ProtonDrive-Linux"
 license=('GPL-3.0-or-later')
-depends=('fuse3' 'libsecret' 'gtk4' 'libadwaita' 'openssl')
+depends=('libsecret' 'gtk4' 'libadwaita' 'openssl')
 optdepends=(
   'gnome-shell-extension-appindicator: system-tray icon on GNOME'
   'plasma-workspace: system-tray icon on KDE Plasma'
 )
-makedepends=('rust>=1.75' 'cargo' 'pkgconf' 'git')
+makedepends=('rust>=1.75' 'cargo' 'go' 'pkgconf' 'git')
 source=("$pkgname-$pkgver.tar.gz::$url/releases/download/v$pkgver/protondrive-linux-$pkgver.tar.gz")
 sha256sums=('{SHA256}')
 options=('!lto')
@@ -33,7 +33,7 @@ check() {
 package() {
   cd "ProtonDrive-Linux-$pkgver"
   install -Dm0755 target/release/protondrive       "$pkgdir/usr/bin/protondrive"
-  install -Dm0755 target/release/protondrive-fs    "$pkgdir/usr/bin/protondrive-fs"
+  install -Dm0755 target/release/protondrived      "$pkgdir/usr/bin/protondrived"
   install -Dm0755 target/release/protondrive-cli   "$pkgdir/usr/bin/protondrive-cli"
   install -Dm0644 packaging/desktop/me.proton.drive.Linux.desktop \
     "$pkgdir/usr/share/applications/me.proton.drive.Linux.desktop"

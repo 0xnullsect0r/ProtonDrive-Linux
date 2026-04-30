@@ -1,0 +1,26 @@
+[package]
+name        = "protondrive-daemon"
+version.workspace     = true
+edition.workspace     = true
+license.workspace     = true
+authors.workspace     = true
+repository.workspace  = true
+rust-version.workspace = true
+
+[[bin]]
+name = "protondrived"
+path = "src/main.rs"
+
+[dependencies]
+protondrive-bridge = { path = "../protondrive-bridge" }
+protondrive-core   = { path = "../protondrive-core" }
+protondrive-sync   = { path = "../protondrive-sync" }
+
+tokio       = { workspace = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+thiserror   = { workspace = true }
+anyhow      = { workspace = true }
+tracing     = { workspace = true }
+tracing-subscriber = { workspace = true }
+directories = { workspace = true }

@@ -23,10 +23,16 @@ fn main() -> Result<()> {
         .enable_all()
         .build()?;
     let daemon = Daemon::init()?;
-    let daemon_for_sync = daemon.clone();
-    rt.spawn(async move {
-        let _ = daemon_for_sync.spawn_sync().await;
-    });
+    {
+        let d = daemon.clone();
+        rt.spawn(async move {
+            match d.try_resume().await {
+                Ok(true) => tracing::info!("resumed previous Proton session"),
+                Ok(false) => tracing::info!("no stored session; awaiting sign-in"),
+                Err(e) => tracing::warn!(error=%e, "session resume failed"),
+            }
+        });
+    }
 
     // System tray on its own thread.
     let tray_daemon = daemon.clone();

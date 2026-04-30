@@ -1,57 +1,138 @@
-//! Top-level orchestrator. The UI and FUSE crates talk to this.
+//! Top-level orchestrator. The UI and CLI talk to this.
+//!
+//! Owns: the [`protondrive_bridge::Bridge`] handle (Proton API + crypto),
+//! the [`Config`], the keyring, and the in-process sync state. The
+//! actual sync engine lives in `protondrive-sync`; we instantiate it
+//! when [`Daemon::start_sync`] is called after a successful login.
 
+use parking_lot::Mutex;
+use protondrive_bridge::{Bridge, InitArgs, LoginArgs};
 use std::sync::Arc;
-use std::time::Duration;
 
-use crate::api::ApiClient;
-use crate::cache::{BlobCache, MetadataDb};
 use crate::config::{Config, Paths};
-use crate::sync::SyncEngine;
+use crate::keyring::{Keyring, Slot};
 use crate::Result;
 
-/// Bundles everything the rest of the app needs.
+const APP_VERSION: &str = concat!(
+    "external-drive-protondrive-linux@",
+    env!("CARGO_PKG_VERSION"),
+    "-stable"
+);
+
 #[derive(Clone)]
 pub struct Daemon {
-    pub config: Config,
+    pub config: Arc<Mutex<Config>>,
     pub paths: Arc<Paths>,
-    pub api: ApiClient,
-    pub db: MetadataDb,
-    pub blobs: Arc<BlobCache>,
-    pub sync: SyncEngine,
+    pub bridge: Arc<Mutex<Option<Bridge>>>,
 }
 
 impl Daemon {
-    /// Initialise everything from disk. Does **not** start the sync loop —
-    /// call [`Self::spawn_sync`] for that.
     pub fn init() -> Result<Self> {
         let paths = Paths::discover()?;
         paths.ensure()?;
         let config = Config::load_or_default(&paths.config_file())?;
-
-        let api = ApiClient::new()?;
-        let db = MetadataDb::open(&paths.metadata_db())?;
-        let blobs = Arc::new(BlobCache::new(paths.block_cache(), config.cache_max_bytes)?);
-
-        let poll = Duration::from_secs(config.poll_interval_secs.max(5));
-        let sync = SyncEngine::new(api.clone(), db.clone(), blobs.clone(), poll);
-
         Ok(Self {
-            config,
+            config: Arc::new(Mutex::new(config)),
             paths: Arc::new(paths),
-            api,
-            db,
-            blobs,
-            sync,
+            bridge: Arc::new(Mutex::new(None)),
         })
     }
 
-    /// Spawn the background sync loop on the current tokio runtime.
-    pub fn spawn_sync(&self) -> tokio::task::JoinHandle<()> {
-        let s = self.sync.clone();
-        tokio::spawn(async move { s.run().await })
+    pub fn save_config(&self) -> Result<()> {
+        let cfg = self.config.lock().clone();
+        cfg.save(&self.paths.config_file())
     }
 
-    pub fn save_config(&self) -> Result<()> {
-        self.config.save(&self.paths.config_file())
+    pub async fn ensure_bridge(
+        &self,
+    ) -> std::result::Result<Bridge, protondrive_bridge::BridgeError> {
+        if let Some(b) = self.bridge.lock().clone() {
+            return Ok(b);
+        }
+        let b = Bridge::init(InitArgs {
+            app_version: APP_VERSION.into(),
+            user_agent: format!("ProtonDrive-Linux/{}", env!("CARGO_PKG_VERSION")),
+            enable_caching: true,
+            concurrent_blocks: 5,
+            concurrent_crypto: 3,
+            replace_existing: true,
+            ..Default::default()
+        })
+        .await?;
+        *self.bridge.lock() = Some(b.clone());
+        Ok(b)
+    }
+
+    /// Try to resume a session from the keyring. Returns `Ok(true)` on success.
+    pub async fn try_resume(&self) -> Result<bool> {
+        let email = match self.config.lock().email.clone() {
+            Some(e) => e,
+            None => return Ok(false),
+        };
+        let kr = Keyring::for_account(email);
+        let (uid, at, rt, skp) = tokio::join!(
+            kr.fetch(Slot::Uid),
+            kr.fetch(Slot::AccessToken),
+            kr.fetch(Slot::RefreshToken),
+            kr.fetch(Slot::SaltedKeyPass),
+        );
+        let (uid, at, rt, skp) = match (uid?, at?, rt?, skp?) {
+            (Some(a), Some(b), Some(c), Some(d)) => (a, b, c, d),
+            _ => return Ok(false),
+        };
+        let bridge = self
+            .ensure_bridge()
+            .await
+            .map_err(|e| crate::Error::Other(e.to_string()))?;
+        let cred = bridge
+            .resume(protondrive_bridge::Credential {
+                uid,
+                access_token: at,
+                refresh_token: rt,
+                salted_key_pass: skp,
+            })
+            .await
+            .map_err(|e| crate::Error::Auth(e.to_string()))?;
+        self.persist_credential(&cred).await?;
+        Ok(true)
+    }
+
+    pub async fn login(
+        &self,
+        email: &str,
+        password: &str,
+        mailbox_password: Option<&str>,
+        totp_code: Option<&str>,
+    ) -> Result<()> {
+        self.config.lock().email = Some(email.into());
+        self.save_config()?;
+        let bridge = self
+            .ensure_bridge()
+            .await
+            .map_err(|e| crate::Error::Other(e.to_string()))?;
+        let cred = bridge
+            .login(LoginArgs {
+                username: email.into(),
+                password: password.into(),
+                mailbox_password: mailbox_password.unwrap_or_default().into(),
+                two_fa: totp_code.unwrap_or_default().into(),
+            })
+            .await
+            .map_err(|e| crate::Error::Auth(e.to_string()))?;
+        self.persist_credential(&cred).await?;
+        Ok(())
+    }
+
+    async fn persist_credential(&self, cred: &protondrive_bridge::Credential) -> Result<()> {
+        let email = match self.config.lock().email.clone() {
+            Some(e) => e,
+            None => return Ok(()),
+        };
+        let kr = Keyring::for_account(email);
+        kr.store(Slot::Uid, &cred.uid).await?;
+        kr.store(Slot::AccessToken, &cred.access_token).await?;
+        kr.store(Slot::RefreshToken, &cred.refresh_token).await?;
+        kr.store(Slot::SaltedKeyPass, &cred.salted_key_pass).await?;
+        Ok(())
     }
 }

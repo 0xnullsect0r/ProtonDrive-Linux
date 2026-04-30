@@ -1,8 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/protondrive-bridge",
     "crates/protondrive-core",
-    "crates/protondrive-fuse",
+    "crates/protondrive-sync",
+    "crates/protondrive-daemon",
     "crates/protondrive-ui",
     "crates/protondrive-cli",
 ]
