@@ -1,0 +1,14 @@
+[Unit]
+Description=Proton Drive (FUSE mount + sync daemon)
+After=graphical-session.target dbus.service
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/protondrive-fs
+Restart=on-failure
+RestartSec=5
+# FUSE needs access to /dev/fuse; user services on most distros already have it.
+
+[Install]
+WantedBy=default.target

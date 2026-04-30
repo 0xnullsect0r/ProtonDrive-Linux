@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Proton Drive
+GenericName=Cloud Storage
+Comment=Native Linux client for Proton Drive
+Exec=protondrive
+Icon=me.proton.drive.Linux
+Categories=Network;FileTransfer;GTK;
+StartupNotify=true
+StartupWMClass=protondrive
+Terminal=false
+Keywords=cloud;storage;sync;proton;drive;

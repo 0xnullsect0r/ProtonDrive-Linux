@@ -1,0 +1,20 @@
+# cargo-deb metadata. See https://github.com/kornelski/cargo-deb
+# Used by `cargo deb -p protondrive-ui` etc. — the release workflow runs three
+# of these and merges the resulting .debs.
+[package.metadata.deb]
+maintainer = "ProtonDrive-Linux contributors <noreply@example.com>"
+copyright = "2026, ProtonDrive-Linux contributors <noreply@example.com>"
+license-file = ["LICENSE", "0"]
+extended-description = """\
+Unofficial native Linux client for Proton Drive: FUSE mount with local cache,
+offline pinning, GTK4 setup UI and system-tray icon."""
+section = "net"
+priority = "optional"
+depends = "$auto, fuse3, libsecret-1-0, libgtk-4-1, libadwaita-1-0"
+recommends = "gnome-shell-extension-appindicator | plasma-workspace | budgie-desktop | cinnamon"
+
+[package.metadata.deb.systemd-units]
+unit-scripts = "../../packaging/systemd"
+unit-name    = "protondrive"
+enable       = false
+start        = false

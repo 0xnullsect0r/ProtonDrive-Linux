@@ -1,0 +1,80 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/protondrive-core",
+    "crates/protondrive-fuse",
+    "crates/protondrive-ui",
+    "crates/protondrive-cli",
+]
+
+[workspace.package]
+version     = "0.1.0"
+edition     = "2021"
+license     = "GPL-3.0-or-later"
+authors     = ["ProtonDrive-Linux contributors"]
+repository  = "https://github.com/0xnullsect0r/ProtonDrive-Linux"
+rust-version = "1.75"
+
+[workspace.dependencies]
+# Async / runtime
+tokio        = { version = "1", features = ["full"] }
+futures      = "0.3"
+async-trait  = "0.1"
+
+# Errors / logging
+thiserror    = "1"
+anyhow       = "1"
+tracing      = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# HTTP / serde
+reqwest      = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream", "gzip"] }
+serde        = { version = "1", features = ["derive"] }
+serde_json   = "1"
+serde_bytes  = "0.11"
+url          = "2"
+
+# Crypto
+sha2         = "0.10"
+hmac         = "0.12"
+base64       = "0.22"
+hex          = "0.4"
+rand         = "0.8"
+totp-rs      = { version = "5", features = ["otpauth"] }
+# Proton SRP variant: we implement on top of `num-bigint-dig` to match upstream.
+num-bigint-dig = { version = "0.8", features = ["prime", "rand"] }
+# OpenPGP for file blocks. rpgp is pure-rust and matches the format Proton uses.
+pgp          = "0.13"
+
+# Storage
+rusqlite     = { version = "0.31", features = ["bundled"] }
+directories  = "5"
+toml         = "0.8"
+bytes        = "1"
+
+# OS integration
+secret-service = { version = "4", features = ["rt-tokio-crypto-rust"] }
+zbus         = "4"
+fuser        = { version = "0.14", default-features = false }
+libc         = "0.2"
+nix          = { version = "0.29", features = ["fs", "user"] }
+
+# UI
+gtk4         = { version = "0.9", package = "gtk4", features = ["v4_12"] }
+libadwaita   = { version = "0.7", features = ["v1_5"] }
+glib         = "0.20"
+relm4        = "0.9"
+ksni         = "0.2"
+
+# Utilities
+parking_lot  = "0.12"
+once_cell    = "1"
+chrono       = { version = "0.4", features = ["serde"] }
+uuid         = { version = "1", features = ["v4", "serde"] }
+lru          = "0.12"
+walkdir      = "2"
+
+[profile.release]
+lto         = "thin"
+codegen-units = 1
+strip       = "symbols"

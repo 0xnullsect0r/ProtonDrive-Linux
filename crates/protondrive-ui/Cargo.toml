@@ -1,0 +1,50 @@
+[package]
+name        = "protondrive-ui"
+version.workspace     = true
+edition.workspace     = true
+license.workspace     = true
+authors.workspace     = true
+repository.workspace  = true
+description = "GTK4 + libadwaita UI and system-tray for ProtonDrive-Linux."
+
+[[bin]]
+name = "protondrive"
+path = "src/main.rs"
+
+[dependencies]
+protondrive-core = { path = "../protondrive-core" }
+tokio.workspace        = true
+anyhow.workspace       = true
+tracing.workspace      = true
+tracing-subscriber.workspace = true
+
+gtk4.workspace         = true
+libadwaita.workspace   = true
+glib.workspace         = true
+ksni.workspace         = true
+
+# --- packaging metadata ---------------------------------------------------
+# `cargo deb -p protondrive-ui --no-build` reads this and builds a single
+# .deb that ships all three binaries plus desktop integration files.
+[package.metadata.deb]
+name = "protondrive-linux"
+maintainer = "ProtonDrive-Linux contributors <noreply@example.com>"
+copyright = "2026, ProtonDrive-Linux contributors"
+license-file = ["../../LICENSE", "0"]
+extended-description = "Unofficial native Linux client for Proton Drive: FUSE mount with local cache, offline pinning, GTK4 setup UI and system-tray icon."
+section = "net"
+priority = "optional"
+depends = "$auto, fuse3, libsecret-1-0, libgtk-4-1, libadwaita-1-0"
+recommends = "gnome-shell-extension-appindicator | plasma-workspace | budgie-desktop | cinnamon"
+assets = [
+  ["../../target/release/protondrive",       "usr/bin/",                                    "755"],
+  ["../../target/release/protondrive-fs",    "usr/bin/",                                    "755"],
+  ["../../target/release/protondrive-cli",   "usr/bin/",                                    "755"],
+  ["../../packaging/desktop/me.proton.drive.Linux.desktop",      "usr/share/applications/", "644"],
+  ["../../packaging/desktop/me.proton.drive.Linux.metainfo.xml", "usr/share/metainfo/",     "644"],
+  ["../../packaging/systemd/protondrive.service",                "usr/lib/systemd/user/",   "644"],
+  ["../../packaging/tmpfiles.d/protondrive.conf",                "usr/lib/tmpfiles.d/",     "644"],
+  ["../../data/icons/me.proton.drive.Linux.svg",                 "usr/share/icons/hicolor/scalable/apps/", "644"],
+  ["../../README.md",                                            "usr/share/doc/protondrive-linux/README.md", "644"],
+]
+

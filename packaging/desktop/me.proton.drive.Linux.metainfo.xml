@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>me.proton.drive.Linux</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Proton Drive</name>
+  <summary>Native Linux client for Proton Drive</summary>
+  <description>
+    <p>
+      Unofficial native Linux client for Proton Drive. Mounts your drive as a
+      FUSE filesystem with an aggressive local cache, "always available offline"
+      pinning, and a system-tray icon for GNOME, KDE Plasma, Budgie and Cinnamon.
+    </p>
+  </description>
+  <launchable type="desktop-id">me.proton.drive.Linux.desktop</launchable>
+  <url type="homepage">https://github.com/0xnullsect0r/ProtonDrive-Linux</url>
+  <developer_name>ProtonDrive-Linux contributors</developer_name>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="0.1.0" date="2026-04-30">
+      <description><p>Initial preview release.</p></description>
+    </release>
+  </releases>
+</component>

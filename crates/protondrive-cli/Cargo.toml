@@ -1,0 +1,19 @@
+[package]
+name        = "protondrive-cli"
+version.workspace     = true
+edition.workspace     = true
+license.workspace     = true
+authors.workspace     = true
+repository.workspace  = true
+description = "Headless CLI for ProtonDrive-Linux."
+
+[[bin]]
+name = "protondrive-cli"
+path = "src/main.rs"
+
+[dependencies]
+protondrive-core = { path = "../protondrive-core" }
+tokio.workspace        = true
+anyhow.workspace       = true
+tracing.workspace      = true
+tracing-subscriber.workspace = true
