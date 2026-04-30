@@ -58,13 +58,25 @@ cargo build --release
 # The setup wizard will ask for:
 #   - Proton email + password
 #   - TOTP secret (the Base32 *key*, not a 6-digit code)
-#   - Mount point (default /mnt/ProtonDrive)
+#   - Sync folder (default ~/ProtonDrive)
 #   - Cache size cap (default 5 GiB)
 ```
 
-`/mnt/ProtonDrive` must be writable by your user; the packaging step creates
-it via `tmpfiles.d`. If it isn't writable, the app falls back to
-`$XDG_DATA_HOME/ProtonDrive`.
+`~/ProtonDrive` is the default sync folder; you can change it in the
+setup wizard. Files added/edited there are propagated to Proton Drive
+and vice-versa.
+
+## Releases
+
+Push a tag of the form **`vX.Y.Z`** (strict semver, three numeric components,
+e.g. `v0.1.0`, `v1.2.3`) to trigger the release workflow. The tag's version
+must match `version` in the root `Cargo.toml`. Any other tag shape is
+ignored by CI.
+
+```
+git tag v0.1.0
+git push origin v0.1.0
+```
 
 ## License
 

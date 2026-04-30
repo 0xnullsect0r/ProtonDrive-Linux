@@ -2,11 +2,11 @@ name: release
 on:
   push:
     tags:
-      - 'v*'
+      - 'v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
     inputs:
       version:
-        description: "Version (without leading v), e.g. 0.1.0"
+        description: "Version (without leading v), MUST be X.Y.Z, e.g. 0.1.0"
         required: true
 
 permissions:
@@ -38,17 +38,14 @@ jobs:
           echo "tag=v$VER"    >> "$GITHUB_OUTPUT"
       - name: Verify Cargo.toml workspace version matches tag
         run: |
+          VER="${{ steps.v.outputs.version }}"
+          if [[ ! "$VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release version '$VER' is not in strict X.Y.Z form (tag must be vX.Y.Z)"
+            exit 1
+          fi
           WS_VER=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
-          # Normalize both sides to MAJOR.MINOR.PATCH (pad missing components with .0)
-          norm() {
-            local v="$1"
-            while [[ $(echo "$v" | awk -F. '{print NF}') -lt 3 ]]; do v="${v}.0"; done
-            echo "$v"
-          }
-          NWS=$(norm "$WS_VER")
-          NTAG=$(norm "${{ steps.v.outputs.version }}")
-          if [[ "$NWS" != "$NTAG" ]]; then
-            echo "::error::Workspace version ($WS_VER → $NWS) does not match release version (${{ steps.v.outputs.version }} → $NTAG)"
+          if [[ "$WS_VER" != "$VER" ]]; then
+            echo "::error::Workspace version ($WS_VER) does not match release version ($VER)"
             exit 1
           fi
 
