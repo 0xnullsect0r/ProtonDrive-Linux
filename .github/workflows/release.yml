@@ -36,18 +36,14 @@ jobs:
           fi
           echo "version=$VER" >> "$GITHUB_OUTPUT"
           echo "tag=v$VER"    >> "$GITHUB_OUTPUT"
-      - name: Verify Cargo.toml workspace version matches tag
+      - name: Validate tag format (must be vX.Y.Z)
         run: |
           VER="${{ steps.v.outputs.version }}"
           if [[ ! "$VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::Release version '$VER' is not in strict X.Y.Z form (tag must be vX.Y.Z)"
             exit 1
           fi
-          WS_VER=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
-          if [[ "$WS_VER" != "$VER" ]]; then
-            echo "::error::Workspace version ($WS_VER) does not match release version ($VER)"
-            exit 1
-          fi
+          echo "Releasing v${VER}; the workspace Cargo.toml will be rewritten to match in every build job."
 
   # ---------------------------------------------------------------------
   # 1. Source tarball (used by Arch PKGBUILD + RPM srpm + checksums)
@@ -60,11 +56,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
+      - name: Pin workspace Cargo.toml to release version
+        run: bash scripts/set-release-version.sh "${{ needs.meta.outputs.version }}"
       - name: Create source tarball
         run: |
           V="${{ needs.meta.outputs.version }}"
           PREFIX="ProtonDrive-Linux-${V}"
-          git archive --format=tar.gz --prefix="${PREFIX}/" -o "protondrive-linux-${V}.tar.gz" HEAD
+          mkdir -p "/tmp/${PREFIX}"
+          tar --exclude='.git' --exclude='target' --exclude='dist' \
+              -cf - . | tar -xf - -C "/tmp/${PREFIX}"
+          tar -czf "protondrive-linux-${V}.tar.gz" -C /tmp "${PREFIX}"
       - id: sha
         run: |
           V="${{ needs.meta.outputs.version }}"
@@ -83,6 +84,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - name: Pin workspace Cargo.toml to release version
+        run: bash scripts/set-release-version.sh "${{ needs.meta.outputs.version }}"
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -121,6 +124,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - name: Pin workspace Cargo.toml to release version
+        run: bash scripts/set-release-version.sh "${{ needs.meta.outputs.version }}"
       - name: Install build deps
         run: |
           sudo apt-get update
@@ -268,6 +273,8 @@ jobs:
       options: --privileged
     steps:
       - uses: actions/checkout@v4
+      - name: Pin workspace Cargo.toml to release version
+        run: bash scripts/set-release-version.sh "${{ needs.meta.outputs.version }}"
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           bundle: protondrive-linux-${{ needs.meta.outputs.version }}.flatpak
