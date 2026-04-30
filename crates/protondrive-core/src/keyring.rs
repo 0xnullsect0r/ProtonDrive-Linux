@@ -1,12 +1,12 @@
 //! Secret Service (libsecret) credential storage.
 //!
 //! Stores three secrets per Proton account:
-//! - `password`     — the Proton account password (used to derive the SRP proof
-//!                    and to unlock the user's PGP private keys).
-//! - `totp_secret`  — the Base32 TOTP key (the *seed*, not a 6-digit code), so
-//!                    we can re-authenticate unattended.
-//! - `refresh_token`— the most recent OAuth-style refresh token from `/auth`,
-//!                    so most launches don't need to repeat full SRP.
+//! - `password` — the Proton account password (used to derive the SRP proof
+//!   and to unlock the user's PGP private keys).
+//! - `totp_secret` — the Base32 TOTP key (the *seed*, not a 6-digit code), so
+//!   we can re-authenticate unattended.
+//! - `refresh_token` — the most recent OAuth-style refresh token from `/auth`,
+//!   so most launches don't need to repeat full SRP.
 //!
 //! Items are tagged with `application=protondrive-linux` and `account=<email>`
 //! so they show up in the Seahorse / KWalletManager UI grouped by account.
@@ -28,8 +28,8 @@ pub enum Slot {
 impl Slot {
     fn key(self) -> &'static str {
         match self {
-            Slot::Password     => "password",
-            Slot::TotpSecret   => "totp_secret",
+            Slot::Password => "password",
+            Slot::TotpSecret => "totp_secret",
             Slot::RefreshToken => "refresh_token",
         }
     }
@@ -41,10 +41,12 @@ pub struct Keyring {
 
 impl Keyring {
     pub fn for_account(email: impl Into<String>) -> Self {
-        Self { account: email.into() }
+        Self {
+            account: email.into(),
+        }
     }
 
-    fn attrs<'a>(&'a self, slot: Slot) -> std::collections::HashMap<&'a str, &'a str> {
+    fn attrs(&self, slot: Slot) -> std::collections::HashMap<&str, &str> {
         let mut m = std::collections::HashMap::new();
         m.insert("application", APP_TAG);
         m.insert("account", self.account.as_str());
@@ -56,7 +58,8 @@ impl Keyring {
         let ss = SecretService::connect(EncryptionType::Dh)
             .await
             .map_err(|e| Error::Keyring(e.to_string()))?;
-        let collection = ss.get_default_collection()
+        let collection = ss
+            .get_default_collection()
             .await
             .map_err(|e| Error::Keyring(e.to_string()))?;
         collection
@@ -80,12 +83,21 @@ impl Keyring {
             .search_items(self.attrs(slot))
             .await
             .map_err(|e| Error::Keyring(e.to_string()))?;
-        let Some(item) = items.unlocked.into_iter().next().or_else(|| items.locked.into_iter().next())
+        let Some(item) = items
+            .unlocked
+            .into_iter()
+            .next()
+            .or_else(|| items.locked.into_iter().next())
         else {
             return Ok(None);
         };
-        item.unlock().await.map_err(|e| Error::Keyring(e.to_string()))?;
-        let bytes = item.get_secret().await.map_err(|e| Error::Keyring(e.to_string()))?;
+        item.unlock()
+            .await
+            .map_err(|e| Error::Keyring(e.to_string()))?;
+        let bytes = item
+            .get_secret()
+            .await
+            .map_err(|e| Error::Keyring(e.to_string()))?;
         Ok(Some(String::from_utf8_lossy(&bytes).into_owned()))
     }
 
@@ -98,7 +110,9 @@ impl Keyring {
             .await
             .map_err(|e| Error::Keyring(e.to_string()))?;
         for item in items.unlocked.into_iter().chain(items.locked) {
-            item.delete().await.map_err(|e| Error::Keyring(e.to_string()))?;
+            item.delete()
+                .await
+                .map_err(|e| Error::Keyring(e.to_string()))?;
         }
         Ok(())
     }

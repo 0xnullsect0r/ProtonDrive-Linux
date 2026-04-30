@@ -43,10 +43,7 @@ pub fn unlock_user_keys(
     Err(Error::NotImplemented("crypto::unlock_user_keys"))
 }
 
-pub fn decrypt_node_name(
-    _ciphertext_armored: &str,
-    _node_key_unlocked: &[u8],
-) -> Result<String> {
+pub fn decrypt_node_name(_ciphertext_armored: &str, _node_key_unlocked: &[u8]) -> Result<String> {
     Err(Error::NotImplemented("crypto::decrypt_node_name"))
 }
 

@@ -1,0 +1,55 @@
+## RPM spec for ProtonDrive-Linux.
+## Filled in by the release workflow (sed) for {VERSION} and {SOURCE_URL}.
+
+Name:           protondrive-linux
+Version:        {VERSION}
+Release:        1%{?dist}
+Summary:        Unofficial native Linux client for Proton Drive
+License:        GPL-3.0-or-later
+URL:            https://github.com/0xnullsect0r/ProtonDrive-Linux
+Source0:        {SOURCE_URL}
+BuildRequires:  rust >= 1.75, cargo, gcc, pkgconfig
+BuildRequires:  pkgconfig(gtk4), pkgconfig(libadwaita-1)
+BuildRequires:  pkgconfig(fuse3), pkgconfig(libsecret-1), pkgconfig(openssl)
+BuildRequires:  systemd-rpm-macros
+Requires:       fuse3, libsecret, gtk4, libadwaita
+Recommends:     gnome-shell-extension-appindicator
+
+%description
+Unofficial native Linux client for Proton Drive. Mounts the user's drive as a
+FUSE filesystem with an aggressive local cache, "always available offline"
+pinning and a system-tray icon for GNOME, KDE Plasma, Budgie and Cinnamon.
+
+%global debug_package %{nil}
+
+%prep
+%autosetup -n ProtonDrive-Linux-%{version}
+
+%build
+cargo build --release --locked
+
+%install
+install -Dm0755 target/release/protondrive       %{buildroot}%{_bindir}/protondrive
+install -Dm0755 target/release/protondrive-fs    %{buildroot}%{_bindir}/protondrive-fs
+install -Dm0755 target/release/protondrive-cli   %{buildroot}%{_bindir}/protondrive-cli
+install -Dm0644 packaging/desktop/me.proton.drive.Linux.desktop      %{buildroot}%{_datadir}/applications/me.proton.drive.Linux.desktop
+install -Dm0644 packaging/desktop/me.proton.drive.Linux.metainfo.xml %{buildroot}%{_metainfodir}/me.proton.drive.Linux.metainfo.xml
+install -Dm0644 data/icons/me.proton.drive.Linux.svg                 %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/me.proton.drive.Linux.svg
+install -Dm0644 packaging/systemd/protondrive.service                %{buildroot}%{_userunitdir}/protondrive.service
+install -Dm0644 packaging/tmpfiles.d/protondrive.conf                %{buildroot}%{_tmpfilesdir}/protondrive.conf
+
+%files
+%license LICENSE
+%doc README.md
+%{_bindir}/protondrive
+%{_bindir}/protondrive-fs
+%{_bindir}/protondrive-cli
+%{_datadir}/applications/me.proton.drive.Linux.desktop
+%{_metainfodir}/me.proton.drive.Linux.metainfo.xml
+%{_datadir}/icons/hicolor/scalable/apps/me.proton.drive.Linux.svg
+%{_userunitdir}/protondrive.service
+%{_tmpfilesdir}/protondrive.conf
+
+%changelog
+* Thu Apr 30 2026 ProtonDrive-Linux contributors - {VERSION}-1
+- Release {VERSION}

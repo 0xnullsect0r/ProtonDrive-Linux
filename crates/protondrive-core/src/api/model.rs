@@ -2,6 +2,11 @@
 //!
 //! These are deliberately *minimal* — only the fields we actually use today.
 //! Extend them as you port more endpoints.
+//!
+//! Field names mirror Proton's JSON wire format (`PascalCase`), so `non_snake_case`
+//! is allowed here.
+
+#![allow(non_snake_case)]
 
 use serde::{Deserialize, Serialize};
 
@@ -50,7 +55,7 @@ pub struct TwoFactorReq<'a> {
 pub struct LinkResp {
     pub LinkID: String,
     pub ParentLinkID: Option<String>,
-    pub Type: i32, // 1=folder, 2=file
+    pub Type: i32,    // 1=folder, 2=file
     pub Name: String, // base64-encrypted
     pub Size: u64,
     pub MIMEType: Option<String>,

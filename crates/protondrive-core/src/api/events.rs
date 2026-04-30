@@ -8,7 +8,13 @@
 use crate::api::model::EventsResp;
 
 #[derive(Debug, Clone, Copy)]
-pub enum EventKind { Delete, Create, Update, UpdateMeta, Unknown }
+pub enum EventKind {
+    Delete,
+    Create,
+    Update,
+    UpdateMeta,
+    Unknown,
+}
 
 impl From<i32> for EventKind {
     fn from(v: i32) -> Self {
@@ -22,4 +28,6 @@ impl From<i32> for EventKind {
     }
 }
 
-pub fn server_requested_full_resync(r: &EventsResp) -> bool { r.Refresh != 0 }
+pub fn server_requested_full_resync(r: &EventsResp) -> bool {
+    r.Refresh != 0
+}

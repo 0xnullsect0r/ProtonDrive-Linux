@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
     pub uid: String,
-    pub access_token:  String,
+    pub access_token: String,
     pub refresh_token: String,
     pub scopes: Vec<String>,
     /// The user's mailbox-password-derived key passphrase, used by the crypto

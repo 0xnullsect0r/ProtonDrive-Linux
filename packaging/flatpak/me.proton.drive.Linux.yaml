@@ -1,0 +1,37 @@
+app-id: me.proton.drive.Linux
+runtime: org.gnome.Platform
+runtime-version: '46'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: protondrive
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --device=dri
+  - --device=fuse                        # /dev/fuse
+  - --filesystem=host                    # so /mnt/ProtonDrive is reachable from outside the sandbox
+  - --talk-name=org.freedesktop.secrets  # libsecret keyring
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --talk-name=org.freedesktop.Notifications
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/protondrive-linux/cargo
+modules:
+  - name: protondrive-linux
+    buildsystem: simple
+    build-commands:
+      - cargo --offline fetch --manifest-path Cargo.toml --verbose
+      - cargo --offline build --release --verbose
+      - install -Dm0755 target/release/protondrive       /app/bin/protondrive
+      - install -Dm0755 target/release/protondrive-fs    /app/bin/protondrive-fs
+      - install -Dm0755 target/release/protondrive-cli   /app/bin/protondrive-cli
+      - install -Dm0644 packaging/desktop/me.proton.drive.Linux.desktop      /app/share/applications/me.proton.drive.Linux.desktop
+      - install -Dm0644 packaging/desktop/me.proton.drive.Linux.metainfo.xml /app/share/metainfo/me.proton.drive.Linux.metainfo.xml
+      - install -Dm0644 data/icons/me.proton.drive.Linux.svg                 /app/share/icons/hicolor/scalable/apps/me.proton.drive.Linux.svg
+    sources:
+      - type: dir
+        path: ../..

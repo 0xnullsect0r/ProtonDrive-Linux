@@ -14,21 +14,34 @@ const CURSOR_KEY: &str = "events_cursor";
 
 #[derive(Clone)]
 pub struct SyncEngine {
-    api:     ApiClient,
-    db:      MetadataDb,
-    blobs:   Arc<BlobCache>,
+    api: ApiClient,
+    db: MetadataDb,
+    blobs: Arc<BlobCache>,
     poll_interval: Duration,
     /// Trigger a poll right now (e.g. user clicked "Refresh" in the tray).
     refresh: Arc<Notify>,
 }
 
 impl SyncEngine {
-    pub fn new(api: ApiClient, db: MetadataDb, blobs: Arc<BlobCache>, poll_interval: Duration) -> Self {
-        Self { api, db, blobs, poll_interval, refresh: Arc::new(Notify::new()) }
+    pub fn new(
+        api: ApiClient,
+        db: MetadataDb,
+        blobs: Arc<BlobCache>,
+        poll_interval: Duration,
+    ) -> Self {
+        Self {
+            api,
+            db,
+            blobs,
+            poll_interval,
+            refresh: Arc::new(Notify::new()),
+        }
     }
 
     /// Trigger an immediate poll. Safe to call from any thread.
-    pub fn refresh_now(&self) { self.refresh.notify_one(); }
+    pub fn refresh_now(&self) {
+        self.refresh.notify_one();
+    }
 
     /// Run forever. Spawn this on the tokio runtime.
     pub async fn run(self) {

@@ -16,7 +16,9 @@ use serde::{Deserialize, Serialize};
 pub struct NodeId(pub String);
 
 impl NodeId {
-    pub fn as_str(&self) -> &str { &self.0 }
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 /// Opaque identifier for a Proton Drive share (the root container of a tree).

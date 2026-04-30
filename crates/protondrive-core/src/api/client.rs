@@ -12,13 +12,14 @@ use crate::auth::Session;
 use crate::{Error, Result};
 
 const DEFAULT_BASE: &str = "https://drive-api.proton.me";
-const APP_VERSION:  &str = "linux-drive@0.1.0";
-const USER_AGENT:   &str = "ProtonDrive-Linux/0.1.0";
+#[allow(dead_code)]
+const APP_VERSION: &str = "linux-drive@0.1.0";
+const USER_AGENT: &str = "ProtonDrive-Linux/0.1.0";
 
 #[derive(Clone)]
 pub struct ApiClient {
-    inner:   Client,
-    base:    Url,
+    inner: Client,
+    base: Url,
     session: Arc<RwLock<Option<Session>>>,
 }
 
@@ -35,19 +36,30 @@ impl ApiClient {
         })
     }
 
-    pub fn set_session(&self, s: Session) { *self.session.write() = Some(s); }
-    pub fn clear_session(&self)            { *self.session.write() = None; }
-    pub fn session(&self) -> Option<Session> { self.session.read().clone() }
+    pub fn set_session(&self, s: Session) {
+        *self.session.write() = Some(s);
+    }
+    pub fn clear_session(&self) {
+        *self.session.write() = None;
+    }
+    pub fn session(&self) -> Option<Session> {
+        self.session.read().clone()
+    }
 
     /// Build a request with Proton's standard headers + bearer auth (if logged in).
+    #[allow(dead_code)]
     fn request(&self, method: Method, path: &str) -> Result<RequestBuilder> {
-        let url = self.base.join(path).map_err(|e| Error::Other(e.to_string()))?;
-        let mut req = self.inner.request(method, url)
+        let url = self
+            .base
+            .join(path)
+            .map_err(|e| Error::Other(e.to_string()))?;
+        let mut req = self
+            .inner
+            .request(method, url)
             .header("x-pm-appversion", APP_VERSION)
             .header(header::ACCEPT, "application/vnd.protonmail.v1+json");
         if let Some(s) = self.session.read().as_ref() {
-            req = req.header("x-pm-uid", &s.uid)
-                     .bearer_auth(&s.access_token);
+            req = req.header("x-pm-uid", &s.uid).bearer_auth(&s.access_token);
         }
         Ok(req)
     }
@@ -89,11 +101,19 @@ impl ApiClient {
     }
 
     /// `req()` is exposed for the events module and any future caller.
-    pub fn raw(&self) -> &Client { &self.inner }
-    pub fn base_url(&self) -> &Url { &self.base }
+    pub fn raw(&self) -> &Client {
+        &self.inner
+    }
+    pub fn base_url(&self) -> &Url {
+        &self.base
+    }
     /// Used by tests to point at a mock server.
-    pub fn with_base_url(mut self, base: Url) -> Self { self.base = base; self }
+    pub fn with_base_url(mut self, base: Url) -> Self {
+        self.base = base;
+        self
+    }
     /// Build helper for sub-modules.
+    #[allow(dead_code)]
     pub(crate) fn req(&self, method: Method, path: &str) -> Result<RequestBuilder> {
         self.request(method, path)
     }

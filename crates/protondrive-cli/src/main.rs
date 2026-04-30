@@ -13,8 +13,10 @@ use protondrive_core::Daemon;
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| "info,protondrive=debug".into()))
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "info,protondrive=debug".into()),
+        )
         .init();
 
     let daemon = Daemon::init()?;
@@ -24,7 +26,10 @@ async fn main() -> Result<()> {
             println!("mount_point   : {}", daemon.config.mount_point.display());
             println!("cache_max     : {} bytes", daemon.config.cache_max_bytes);
             println!("poll_interval : {}s", daemon.config.poll_interval_secs);
-            println!("email         : {}", daemon.config.email.as_deref().unwrap_or("(unset)"));
+            println!(
+                "email         : {}",
+                daemon.config.email.as_deref().unwrap_or("(unset)")
+            );
         }
         Some("refresh") => {
             let h = daemon.spawn_sync();
@@ -34,12 +39,16 @@ async fn main() -> Result<()> {
             println!("refresh requested");
         }
         Some("pin") => {
-            let id = args.next().ok_or_else(|| anyhow::anyhow!("missing NodeId"))?;
+            let id = args
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("missing NodeId"))?;
             daemon.db.set_pinned(&NodeId(id), true)?;
             println!("pinned");
         }
         Some("unpin") => {
-            let id = args.next().ok_or_else(|| anyhow::anyhow!("missing NodeId"))?;
+            let id = args
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("missing NodeId"))?;
             daemon.db.set_pinned(&NodeId(id), false)?;
             println!("unpinned");
         }

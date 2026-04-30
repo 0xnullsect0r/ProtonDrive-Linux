@@ -55,24 +55,31 @@ pub struct MetadataDb {
 
 impl MetadataDb {
     pub fn open(path: &Path) -> Result<Self> {
-        if let Some(p) = path.parent() { std::fs::create_dir_all(p)?; }
+        if let Some(p) = path.parent() {
+            std::fs::create_dir_all(p)?;
+        }
         let conn = Connection::open(path)?;
         conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
         conn.execute_batch(SCHEMA)?;
-        Ok(Self { conn: Arc::new(Mutex::new(conn)) })
+        Ok(Self {
+            conn: Arc::new(Mutex::new(conn)),
+        })
     }
 
     pub fn open_in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
         conn.execute_batch(SCHEMA)?;
-        Ok(Self { conn: Arc::new(Mutex::new(conn)) })
+        Ok(Self {
+            conn: Arc::new(Mutex::new(conn)),
+        })
     }
 
     // --- kv helpers -------------------------------------------------------
 
     pub fn get_kv(&self, key: &str) -> Result<Option<String>> {
         let conn = self.conn.lock();
-        Ok(conn.query_row("SELECT v FROM kv WHERE k = ?1", params![key], |r| r.get(0))
+        Ok(conn
+            .query_row("SELECT v FROM kv WHERE k = ?1", params![key], |r| r.get(0))
             .optional()?)
     }
 
@@ -88,7 +95,10 @@ impl MetadataDb {
     // --- nodes ------------------------------------------------------------
 
     pub fn upsert_node(&self, n: &Node) -> Result<()> {
-        let kind = match n.kind { NodeKind::Folder => "folder", NodeKind::File => "file" };
+        let kind = match n.kind {
+            NodeKind::Folder => "folder",
+            NodeKind::File => "file",
+        };
         let conn = self.conn.lock();
         conn.execute(
             r#"INSERT INTO nodes
@@ -138,13 +148,18 @@ impl MetadataDb {
         )?;
         let rows = stmt.query_map(params![parent.0], row_to_node)?;
         let mut out = Vec::new();
-        for r in rows { out.push(r?); }
+        for r in rows {
+            out.push(r?);
+        }
         Ok(out)
     }
 
     pub fn set_pinned(&self, id: &NodeId, pinned: bool) -> Result<()> {
         let conn = self.conn.lock();
-        conn.execute("UPDATE nodes SET pinned = ?1 WHERE id = ?2", params![pinned as i64, id.0])?;
+        conn.execute(
+            "UPDATE nodes SET pinned = ?1 WHERE id = ?2",
+            params![pinned as i64, id.0],
+        )?;
         Ok(())
     }
 
@@ -162,16 +177,20 @@ impl MetadataDb {
 fn row_to_node(r: &rusqlite::Row<'_>) -> rusqlite::Result<Node> {
     let kind: String = r.get(3)?;
     Ok(Node {
-        id:        NodeId(r.get(0)?),
-        parent:    r.get::<_, Option<String>>(1)?.map(NodeId),
-        share:     ShareId(r.get(2)?),
-        kind:      if kind == "folder" { NodeKind::Folder } else { NodeKind::File },
-        name:      r.get(4)?,
-        size:      r.get::<_, i64>(5)? as u64,
-        mtime:     r.get(6)?,
+        id: NodeId(r.get(0)?),
+        parent: r.get::<_, Option<String>>(1)?.map(NodeId),
+        share: ShareId(r.get(2)?),
+        kind: if kind == "folder" {
+            NodeKind::Folder
+        } else {
+            NodeKind::File
+        },
+        name: r.get(4)?,
+        size: r.get::<_, i64>(5)? as u64,
+        mtime: r.get(6)?,
         mime_type: r.get(7)?,
         active_revision: r.get::<_, Option<String>>(8)?.map(RevisionId),
-        pinned:    r.get::<_, i64>(9)? != 0,
+        pinned: r.get::<_, i64>(9)? != 0,
     })
 }
 

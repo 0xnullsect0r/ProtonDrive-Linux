@@ -13,11 +13,11 @@ use crate::Result;
 #[derive(Clone)]
 pub struct Daemon {
     pub config: Config,
-    pub paths:  Arc<Paths>,
-    pub api:    ApiClient,
-    pub db:     MetadataDb,
-    pub blobs:  Arc<BlobCache>,
-    pub sync:   SyncEngine,
+    pub paths: Arc<Paths>,
+    pub api: ApiClient,
+    pub db: MetadataDb,
+    pub blobs: Arc<BlobCache>,
+    pub sync: SyncEngine,
 }
 
 impl Daemon {
@@ -28,8 +28,8 @@ impl Daemon {
         paths.ensure()?;
         let config = Config::load_or_default(&paths.config_file())?;
 
-        let api   = ApiClient::new()?;
-        let db    = MetadataDb::open(&paths.metadata_db())?;
+        let api = ApiClient::new()?;
+        let db = MetadataDb::open(&paths.metadata_db())?;
         let blobs = Arc::new(BlobCache::new(paths.block_cache(), config.cache_max_bytes)?);
 
         let poll = Duration::from_secs(config.poll_interval_secs.max(5));

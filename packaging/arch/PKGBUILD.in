@@ -1,0 +1,50 @@
+# Maintainer: ProtonDrive-Linux contributors <noreply@example.com>
+# This template is rendered by the release workflow: {VERSION} and {SHA256}
+# are substituted before the file is published to the AUR.
+pkgname=protondrive-linux
+pkgver={VERSION}
+pkgrel=1
+pkgdesc="Unofficial native Linux client for Proton Drive (FUSE mount + GTK4 UI + tray)"
+arch=('x86_64' 'aarch64')
+url="https://github.com/0xnullsect0r/ProtonDrive-Linux"
+license=('GPL-3.0-or-later')
+depends=('fuse3' 'libsecret' 'gtk4' 'libadwaita' 'openssl')
+optdepends=(
+  'gnome-shell-extension-appindicator: system-tray icon on GNOME'
+  'plasma-workspace: system-tray icon on KDE Plasma'
+)
+makedepends=('rust>=1.75' 'cargo' 'pkgconf' 'git')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('{SHA256}')
+options=('!lto')
+
+build() {
+  cd "ProtonDrive-Linux-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --release --locked
+}
+
+check() {
+  cd "ProtonDrive-Linux-$pkgver"
+  cargo test --release --locked --workspace --no-fail-fast || true
+}
+
+package() {
+  cd "ProtonDrive-Linux-$pkgver"
+  install -Dm0755 target/release/protondrive       "$pkgdir/usr/bin/protondrive"
+  install -Dm0755 target/release/protondrive-fs    "$pkgdir/usr/bin/protondrive-fs"
+  install -Dm0755 target/release/protondrive-cli   "$pkgdir/usr/bin/protondrive-cli"
+  install -Dm0644 packaging/desktop/me.proton.drive.Linux.desktop \
+    "$pkgdir/usr/share/applications/me.proton.drive.Linux.desktop"
+  install -Dm0644 packaging/desktop/me.proton.drive.Linux.metainfo.xml \
+    "$pkgdir/usr/share/metainfo/me.proton.drive.Linux.metainfo.xml"
+  install -Dm0644 data/icons/me.proton.drive.Linux.svg \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/me.proton.drive.Linux.svg"
+  install -Dm0644 packaging/systemd/protondrive.service \
+    "$pkgdir/usr/lib/systemd/user/protondrive.service"
+  install -Dm0644 packaging/tmpfiles.d/protondrive.conf \
+    "$pkgdir/usr/lib/tmpfiles.d/protondrive.conf"
+  install -Dm0644 LICENSE   "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm0644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

@@ -14,14 +14,17 @@ use protondrive_core::Daemon;
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| "info,protondrive=debug".into()))
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "info,protondrive=debug".into()),
+        )
         .init();
 
     let daemon = Daemon::init()?;
     let _bg = daemon.spawn_sync();
 
-    let mount_point = std::env::args().nth(1)
+    let mount_point = std::env::args()
+        .nth(1)
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| daemon.config.resolved_mount_point(&daemon.paths));
     std::fs::create_dir_all(&mount_point)?;
