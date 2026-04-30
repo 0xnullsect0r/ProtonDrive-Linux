@@ -35,6 +35,10 @@ package() {
   install -Dm0755 target/release/protondrive       "$pkgdir/usr/bin/protondrive"
   install -Dm0755 target/release/protondrived      "$pkgdir/usr/bin/protondrived"
   install -Dm0755 target/release/protondrive-cli   "$pkgdir/usr/bin/protondrive-cli"
+  # Go-CGO bridge .so produced by build.rs; located at runtime via the
+  # rpath embedded in the binaries (-Wl,-rpath,$ORIGIN/../lib).
+  _bridge_so=$(find target/release/build -maxdepth 4 -name libprotonbridge.so | head -n1)
+  install -Dm0755 "$_bridge_so" "$pkgdir/usr/lib/libprotonbridge.so"
   install -Dm0644 packaging/desktop/me.proton.drive.Linux.desktop \
     "$pkgdir/usr/share/applications/me.proton.drive.Linux.desktop"
   install -Dm0644 packaging/desktop/me.proton.drive.Linux.metainfo.xml \

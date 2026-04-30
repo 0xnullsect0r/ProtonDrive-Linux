@@ -96,6 +96,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: cargo build --release
         run: cargo build --release --workspace --locked
+      - name: Stage Go bridge .so next to the binaries
+        run: |
+          SO=$(find target/release/build -maxdepth 4 -name libprotonbridge.so | head -n1)
+          if [[ -z "$SO" ]]; then
+            echo "::error::libprotonbridge.so was not produced"
+            exit 1
+          fi
+          install -Dm0755 "$SO" target/release/libprotonbridge.so
       - uses: actions/upload-artifact@v4
         with:
           name: release-bins-linux-x86_64
@@ -103,6 +111,7 @@ jobs:
             target/release/protondrive
             target/release/protondrived
             target/release/protondrive-cli
+            target/release/libprotonbridge.so
 
   # ---------------------------------------------------------------------
   # 3. .deb (Debian/Ubuntu/Mint/Pop_OS!)
@@ -143,13 +152,20 @@ jobs:
   package-rpm:
     needs: [meta, source-tarball]
     runs-on: ubuntu-24.04
-    container: fedora:40
+    container: fedora:41
     steps:
       - name: Install build env
         run: |
-          dnf install -y rpm-build rpmdevtools cargo rust gcc make golang \
+          dnf install -y rpm-build rpmdevtools gcc make golang \
             gtk4-devel libadwaita-devel libsecret-devel \
-            openssl-devel dbus-devel pkgconf-pkg-config systemd-rpm-macros tar
+            openssl-devel dbus-devel pkgconf-pkg-config systemd-rpm-macros tar \
+            curl-minimal ca-certificates
+          # Fedora 41's bundled rustc (1.86) is too old for some workspace
+          # dependencies (home@0.5.12 needs 1.88+). Install an up-to-date
+          # toolchain via rustup so we always build with current stable.
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
       - uses: actions/download-artifact@v4
         with: { name: source-tarball, path: . }
       - name: Render spec + stage tarball
@@ -162,7 +178,9 @@ jobs:
             "ProtonDrive-Linux-${V}/packaging/rpm/protondrive-linux.spec.in" \
             > ~/rpmbuild/SPECS/protondrive-linux.spec
       - name: rpmbuild
-        run: rpmbuild -ba ~/rpmbuild/SPECS/protondrive-linux.spec
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          rpmbuild -ba ~/rpmbuild/SPECS/protondrive-linux.spec
       - name: Collect rpms
         run: |
           mkdir out
@@ -246,7 +264,7 @@ jobs:
     needs: meta
     runs-on: ubuntu-24.04
     container:
-      image: bilelmoussaoui/flatpak-github-actions:gnome-46
+      image: bilelmoussaoui/flatpak-github-actions:gnome-48
       options: --privileged
     steps:
       - uses: actions/checkout@v4

@@ -41,6 +41,7 @@ assets = [
   ["../../target/release/protondrive",       "usr/bin/",                                    "755"],
   ["../../target/release/protondrive-cli",   "usr/bin/",                                    "755"],
   ["../../target/release/protondrived",      "usr/bin/",                                    "755"],
+  ["../../target/release/libprotonbridge.so", "usr/lib/",                                   "755"],
   ["../../packaging/desktop/me.proton.drive.Linux.desktop",      "usr/share/applications/", "644"],
   ["../../packaging/desktop/me.proton.drive.Linux.metainfo.xml", "usr/share/metainfo/",     "644"],
   ["../../packaging/systemd/protondrive.service",                "usr/lib/systemd/user/",   "644"],

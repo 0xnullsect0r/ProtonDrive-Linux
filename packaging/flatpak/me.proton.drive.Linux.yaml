@@ -1,6 +1,6 @@
 app-id: me.proton.drive.Linux
 runtime: org.gnome.Platform
-runtime-version: '46'
+runtime-version: '48'
 sdk: org.gnome.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
@@ -31,6 +31,7 @@ modules:
       - install -Dm0755 target/release/protondrive       /app/bin/protondrive
       - install -Dm0755 target/release/protondrived      /app/bin/protondrived
       - install -Dm0755 target/release/protondrive-cli   /app/bin/protondrive-cli
+      - install -Dm0755 "$(find target/release/build -maxdepth 4 -name libprotonbridge.so | head -n1)" /app/lib/libprotonbridge.so
       - install -Dm0644 packaging/desktop/me.proton.drive.Linux.desktop      /app/share/applications/me.proton.drive.Linux.desktop
       - install -Dm0644 packaging/desktop/me.proton.drive.Linux.metainfo.xml /app/share/metainfo/me.proton.drive.Linux.metainfo.xml
       - install -Dm0644 data/icons/me.proton.drive.Linux.svg                 /app/share/icons/hicolor/scalable/apps/me.proton.drive.Linux.svg

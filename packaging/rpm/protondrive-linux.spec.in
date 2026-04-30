@@ -8,7 +8,7 @@ Summary:        Unofficial native Linux client for Proton Drive
 License:        GPL-3.0-or-later
 URL:            https://github.com/0xnullsect0r/ProtonDrive-Linux
 Source0:        %{name}-%{version}.tar.gz
-BuildRequires:  rust >= 1.75, cargo, gcc, make, golang, pkgconfig
+BuildRequires:  gcc, make, golang, pkgconfig
 BuildRequires:  pkgconfig(gtk4), pkgconfig(libadwaita-1)
 BuildRequires:  pkgconfig(libsecret-1), pkgconfig(openssl)
 BuildRequires:  systemd-rpm-macros
@@ -32,6 +32,11 @@ cargo build --release --locked
 install -Dm0755 target/release/protondrive       %{buildroot}%{_bindir}/protondrive
 install -Dm0755 target/release/protondrived      %{buildroot}%{_bindir}/protondrived
 install -Dm0755 target/release/protondrive-cli   %{buildroot}%{_bindir}/protondrive-cli
+# Go-CGO bridge .so produced by build.rs — installed into the libdir and
+# located at runtime via the rpath embedded in the binaries
+# (-Wl,-rpath,$ORIGIN/../lib).
+_BRIDGE_SO=$(find target/release/build -maxdepth 4 -name libprotonbridge.so | head -n1)
+install -Dm0755 "$_BRIDGE_SO" %{buildroot}%{_libdir}/libprotonbridge.so
 install -Dm0644 packaging/desktop/me.proton.drive.Linux.desktop      %{buildroot}%{_datadir}/applications/me.proton.drive.Linux.desktop
 install -Dm0644 packaging/desktop/me.proton.drive.Linux.metainfo.xml %{buildroot}%{_metainfodir}/me.proton.drive.Linux.metainfo.xml
 install -Dm0644 data/icons/me.proton.drive.Linux.svg                 %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/me.proton.drive.Linux.svg
@@ -44,6 +49,7 @@ install -Dm0644 packaging/tmpfiles.d/protondrive.conf                %{buildroot
 %{_bindir}/protondrive
 %{_bindir}/protondrived
 %{_bindir}/protondrive-cli
+%{_libdir}/libprotonbridge.so
 %{_datadir}/applications/me.proton.drive.Linux.desktop
 %{_metainfodir}/me.proton.drive.Linux.metainfo.xml
 %{_datadir}/icons/hicolor/scalable/apps/me.proton.drive.Linux.svg

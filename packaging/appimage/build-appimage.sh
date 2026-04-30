@@ -16,6 +16,22 @@ install -Dm0755 "$ROOT/target/release/protondrive"      "$WORK/usr/bin/protondri
 install -Dm0755 "$ROOT/target/release/protondrived"     "$WORK/usr/bin/protondrived"
 install -Dm0755 "$ROOT/target/release/protondrive-cli"  "$WORK/usr/bin/protondrive-cli"
 
+# Ship the Go-CGO bridge .so. The release-bins artifact stages it at
+# target/release/libprotonbridge.so; fall back to the build-tree copy if
+# this script is being invoked from a fresh local checkout.
+if [[ -f "$ROOT/target/release/libprotonbridge.so" ]]; then
+    install -Dm0755 "$ROOT/target/release/libprotonbridge.so" "$WORK/usr/lib/libprotonbridge.so"
+else
+    BRIDGE_SO=$(find "$ROOT/target/release/build" -maxdepth 4 -name libprotonbridge.so 2>/dev/null | head -n1)
+    if [[ -z "$BRIDGE_SO" ]]; then
+        echo "ERROR: libprotonbridge.so not found; build the workspace first." >&2
+        exit 1
+    fi
+    install -Dm0755 "$BRIDGE_SO" "$WORK/usr/lib/libprotonbridge.so"
+fi
+# Help linuxdeploy resolve the bridge .so when scanning the binaries.
+export LD_LIBRARY_PATH="$WORK/usr/lib:${LD_LIBRARY_PATH:-}"
+
 install -Dm0644 "$ROOT/packaging/desktop/me.proton.drive.Linux.desktop" \
                 "$WORK/usr/share/applications/me.proton.drive.Linux.desktop"
 install -Dm0644 "$ROOT/packaging/desktop/me.proton.drive.Linux.metainfo.xml" \
