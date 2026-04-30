@@ -14,7 +14,7 @@ optdepends=(
   'plasma-workspace: system-tray icon on KDE Plasma'
 )
 makedepends=('rust>=1.75' 'cargo' 'pkgconf' 'git')
-source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+source=("$pkgname-$pkgver.tar.gz::$url/releases/download/v$pkgver/protondrive-linux-$pkgver.tar.gz")
 sha256sums=('{SHA256}')
 options=('!lto')
 

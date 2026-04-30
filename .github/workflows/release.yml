@@ -10,7 +10,7 @@ on:
         required: true
 
 permissions:
-  contents: write   # create the GitHub Release & upload assets
+  contents: write
   packages: write
 
 env:
@@ -18,7 +18,7 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------
-  # 0. Resolve version from the tag (or workflow_dispatch input)
+  # 0. Resolve version + sanity-check it matches the workspace Cargo.toml
   # ---------------------------------------------------------------------
   meta:
     runs-on: ubuntu-24.04
@@ -26,6 +26,7 @@ jobs:
       version: ${{ steps.v.outputs.version }}
       tag:     ${{ steps.v.outputs.tag }}
     steps:
+      - uses: actions/checkout@v4
       - id: v
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
@@ -35,6 +36,13 @@ jobs:
           fi
           echo "version=$VER" >> "$GITHUB_OUTPUT"
           echo "tag=v$VER"    >> "$GITHUB_OUTPUT"
+      - name: Verify Cargo.toml workspace version matches tag
+        run: |
+          WS_VER=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+          if [[ "$WS_VER" != "${{ steps.v.outputs.version }}" ]]; then
+            echo "::error::Workspace version ($WS_VER) does not match release version (${{ steps.v.outputs.version }})"
+            exit 1
+          fi
 
   # ---------------------------------------------------------------------
   # 1. Source tarball (used by Arch PKGBUILD + RPM srpm + checksums)
@@ -135,15 +143,13 @@ jobs:
             openssl-devel dbus-devel pkgconf-pkg-config systemd-rpm-macros tar
       - uses: actions/download-artifact@v4
         with: { name: source-tarball, path: . }
-      - name: Render spec
+      - name: Render spec + stage tarball
         run: |
           V="${{ needs.meta.outputs.version }}"
           mkdir -p ~/rpmbuild/{SOURCES,SPECS,RPMS,SRPMS,BUILD,BUILDROOT}
           cp "protondrive-linux-${V}.tar.gz" ~/rpmbuild/SOURCES/
           tar -xzf "protondrive-linux-${V}.tar.gz"
-          sed \
-            -e "s|{VERSION}|${V}|g" \
-            -e "s|{SOURCE_URL}|https://github.com/${{ github.repository }}/archive/refs/tags/v${V}.tar.gz|g" \
+          sed "s|{VERSION}|${V}|g" \
             "ProtonDrive-Linux-${V}/packaging/rpm/protondrive-linux.spec.in" \
             > ~/rpmbuild/SPECS/protondrive-linux.spec
       - name: rpmbuild
@@ -158,49 +164,37 @@ jobs:
         with: { name: rpm, path: out/*.rpm }
 
   # ---------------------------------------------------------------------
-  # 5. Arch PKGBUILD (artifact + AUR publish)
+  # 5. Arch PKGBUILD + .SRCINFO (artifact only; AUR push happens AFTER release)
   # ---------------------------------------------------------------------
   package-arch:
     needs: [meta, source-tarball]
     runs-on: ubuntu-24.04
-    outputs:
-      sha256: ${{ needs.source-tarball.outputs.sha256 }}
+    container:
+      image: archlinux:latest
     steps:
+      - name: Install makepkg + tools
+        run: |
+          pacman -Syu --noconfirm base-devel git sudo
+          # makepkg refuses to run as root; create a build user
+          useradd -m builder
+          echo 'builder ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers
       - uses: actions/checkout@v4
-      - name: Render PKGBUILD + .SRCINFO
+      - name: Render PKGBUILD + generate .SRCINFO
         run: |
           V="${{ needs.meta.outputs.version }}"
           SHA="${{ needs.source-tarball.outputs.sha256 }}"
           mkdir -p out
           sed -e "s|{VERSION}|${V}|g" -e "s|{SHA256}|${SHA}|g" \
-            packaging/arch/PKGBUILD.in  > out/PKGBUILD
-          sed -e "s|{VERSION}|${V}|g" -e "s|{SHA256}|${SHA}|g" \
-            packaging/arch/.SRCINFO.in  > out/.SRCINFO
+            packaging/arch/PKGBUILD.in > out/PKGBUILD
+          chown -R builder out
+          su builder -c 'cd out && makepkg --printsrcinfo > .SRCINFO'
+          cat out/.SRCINFO
       - uses: actions/upload-artifact@v4
         with:
           name: arch-pkgbuild
-          path: out/
-
-  publish-aur:
-    needs: [meta, package-arch]
-    runs-on: ubuntu-24.04
-    # Only push to the AUR for real tag releases; skip on workflow_dispatch dry-runs.
-    if: github.event_name == 'push'
-    steps:
-      - uses: actions/download-artifact@v4
-        with: { name: arch-pkgbuild, path: arch }
-      - name: Publish to AUR
-        uses: KSXGitHub/github-actions-deploy-aur@v2.7.2
-        with:
-          pkgname: protondrive-linux
-          pkgbuild: arch/PKGBUILD
-          assets: |
-            arch/.SRCINFO
-          commit_username: ${{ secrets.AUR_USERNAME }}
-          commit_email:    ${{ secrets.AUR_EMAIL }}
-          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
-          commit_message: "Release ${{ needs.meta.outputs.tag }}"
-          ssh_keyscan_types: "rsa,ecdsa,ed25519"
+          path: |
+            out/PKGBUILD
+            out/.SRCINFO
 
   # ---------------------------------------------------------------------
   # 6. AppImage (works on essentially any glibc-based distro)
@@ -215,8 +209,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libgtk-4-1 libadwaita-1-0 libfuse3-3 libsecret-1-0 \
-            libgdk-pixbuf-2.0-0 librsvg2-common file desktop-file-utils \
-            patchelf wget ca-certificates
+            libgdk-pixbuf-2.0-0 libgdk-pixbuf2.0-bin librsvg2-common \
+            file desktop-file-utils patchelf wget ca-certificates
       - name: Restore release binaries
         uses: actions/download-artifact@v4
         with: { name: release-bins-linux-x86_64, path: target/release }
@@ -224,10 +218,11 @@ jobs:
       - name: Fetch linuxdeploy + GTK plugin
         run: |
           mkdir -p $HOME/.local/bin
-          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage           -O $HOME/.local/bin/linuxdeploy
-          wget -q https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh         -O $HOME/.local/bin/linuxdeploy-plugin-gtk
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage \
+            -O $HOME/.local/bin/linuxdeploy
+          wget -q https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh \
+            -O $HOME/.local/bin/linuxdeploy-plugin-gtk
           chmod +x $HOME/.local/bin/linuxdeploy $HOME/.local/bin/linuxdeploy-plugin-gtk
-          # Run AppImages without FUSE on the runner.
           echo "APPIMAGE_EXTRACT_AND_RUN=1" >> $GITHUB_ENV
           echo "$HOME/.local/bin" >> $GITHUB_PATH
       - name: Build AppImage
@@ -269,9 +264,34 @@ jobs:
                               -o -name '*.flatpak' -o -name '*.tar.gz' -o -name 'PKGBUILD' \
                               -o -name '.SRCINFO' \) -exec cp {} release/ \;
           cd release && sha256sum * > SHA256SUMS
+          ls -la
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.meta.outputs.tag }}
           name: ${{ needs.meta.outputs.tag }}
           generate_release_notes: true
           files: release/*
+
+  # ---------------------------------------------------------------------
+  # 9. Publish to AUR — only AFTER the GitHub Release exists, because the
+  #    PKGBUILD's source URL points at a release asset.
+  # ---------------------------------------------------------------------
+  publish-aur:
+    needs: [meta, package-arch, release]
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: arch-pkgbuild, path: arch }
+      - name: Publish to AUR
+        uses: KSXGitHub/github-actions-deploy-aur@v2.7.2
+        with:
+          pkgname: protondrive-linux
+          pkgbuild: arch/PKGBUILD
+          assets: |
+            arch/.SRCINFO
+          commit_username: ${{ secrets.AUR_USERNAME }}
+          commit_email:    ${{ secrets.AUR_EMAIL }}
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: "Release ${{ needs.meta.outputs.tag }}"
+          ssh_keyscan_types: "rsa,ecdsa,ed25519"

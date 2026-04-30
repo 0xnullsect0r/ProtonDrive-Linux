@@ -10,22 +10,23 @@ finish-args:
   - --share=network
   - --socket=fallback-x11
   - --socket=wayland
-  - --device=dri
-  - --device=fuse                        # /dev/fuse
+  - --device=all                         # /dev/fuse + DRI for GTK
   - --filesystem=host                    # so /mnt/ProtonDrive is reachable from outside the sandbox
   - --talk-name=org.freedesktop.secrets  # libsecret keyring
   - --talk-name=org.kde.StatusNotifierWatcher
   - --talk-name=org.freedesktop.Notifications
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
+  build-args:
+    - --share=network                    # let cargo fetch crates from crates.io at build time
   env:
     CARGO_HOME: /run/build/protondrive-linux/cargo
 modules:
   - name: protondrive-linux
     buildsystem: simple
     build-commands:
-      - cargo --offline fetch --manifest-path Cargo.toml --verbose
-      - cargo --offline build --release --verbose
+      - cargo fetch --manifest-path Cargo.toml --verbose
+      - cargo build --release --verbose
       - install -Dm0755 target/release/protondrive       /app/bin/protondrive
       - install -Dm0755 target/release/protondrive-fs    /app/bin/protondrive-fs
       - install -Dm0755 target/release/protondrive-cli   /app/bin/protondrive-cli

@@ -7,7 +7,7 @@ Release:        1%{?dist}
 Summary:        Unofficial native Linux client for Proton Drive
 License:        GPL-3.0-or-later
 URL:            https://github.com/0xnullsect0r/ProtonDrive-Linux
-Source0:        {SOURCE_URL}
+Source0:        %{name}-%{version}.tar.gz
 BuildRequires:  rust >= 1.75, cargo, gcc, pkgconfig
 BuildRequires:  pkgconfig(gtk4), pkgconfig(libadwaita-1)
 BuildRequires:  pkgconfig(fuse3), pkgconfig(libsecret-1), pkgconfig(openssl)
