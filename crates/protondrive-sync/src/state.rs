@@ -144,7 +144,6 @@ impl State {
         }
     }
 
-
     pub fn set_materialized(&self, link_id: &str, value: bool) -> Result<(), StateError> {
         self.conn.execute(
             "UPDATE mappings SET is_materialized=?1 WHERE link_id=?2",

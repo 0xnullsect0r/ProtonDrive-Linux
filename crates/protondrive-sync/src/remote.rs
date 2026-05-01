@@ -76,11 +76,7 @@ impl RemoteWatcher {
 /// folder is listed — so files at the root appear in seconds.
 ///
 /// Returns the total number of entries discovered.
-async fn bfs_scan(
-    bridge: &Bridge,
-    tx: &mpsc::Sender<RemoteChange>,
-    root_link_id: &str,
-) -> usize {
+async fn bfs_scan(bridge: &Bridge, tx: &mpsc::Sender<RemoteChange>, root_link_id: &str) -> usize {
     // Queue: (folder_link_id, relative_path_prefix)
     let mut queue: VecDeque<(String, String)> = VecDeque::new();
     queue.push_back((root_link_id.to_owned(), String::new()));
