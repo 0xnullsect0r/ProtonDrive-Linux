@@ -1,0 +1,29 @@
+{
+  "now": 1700000100,
+  "events": [
+    {
+      "link_id": "L1abc",
+      "parent_id": "root",
+      "name": "Documents/report.pdf",
+      "is_folder": false,
+      "modify_time": 1700000000,
+      "size": 204800
+    },
+    {
+      "link_id": "L2def",
+      "parent_id": "root",
+      "name": "Photos",
+      "is_folder": true,
+      "modify_time": 1699990000,
+      "size": 0
+    },
+    {
+      "link_id": "L3ghi",
+      "parent_id": "L2def",
+      "name": "Photos/holiday.jpg",
+      "is_folder": false,
+      "modify_time": 1699995000,
+      "size": 3145728
+    }
+  ]
+}

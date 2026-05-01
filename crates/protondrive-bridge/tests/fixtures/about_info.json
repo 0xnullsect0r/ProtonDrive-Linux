@@ -1,0 +1,9 @@
+{
+  "id": "user-id-abc",
+  "name": "Alice Proton",
+  "email": "alice@proton.me",
+  "display": "Alice",
+  "used": 1073741824,
+  "max": 10737418240,
+  "now": 1700000000
+}

@@ -1,0 +1,7 @@
+{
+  "ok": {
+    "status": "hv_required",
+    "hv_token": "hv-abc-123",
+    "methods": ["captcha", "email"]
+  }
+}

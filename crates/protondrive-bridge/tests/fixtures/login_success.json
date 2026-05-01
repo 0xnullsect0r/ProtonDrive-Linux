@@ -1,0 +1,8 @@
+{
+  "ok": {
+    "uid": "user-uid-123",
+    "access_token": "at-abc",
+    "refresh_token": "rt-xyz",
+    "salted_key_pass": "skp-000"
+  }
+}

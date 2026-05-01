@@ -1,5 +1,6 @@
 //! `protondrive` binary — GTK4 + libadwaita UI + system tray.
 
+mod crash;
 mod sync;
 mod tray;
 mod ui;
@@ -7,12 +8,17 @@ mod ui;
 use anyhow::Result;
 use gtk4::prelude::*;
 use libadwaita as adw;
+use libadwaita::prelude::MessageDialogExt;
 use protondrive_core::Daemon;
 use sync::SyncController;
 
 const APP_ID: &str = "me.proton.drive.Linux";
 
 fn main() -> Result<()> {
+    // ── Crash reporter hook ────────────────────────────────────────
+    // Must be installed first so panics in the setup code are also caught.
+    crash::install_hook();
+
     // ── Structured logging ─────────────────────────────────────────
     // Write logs to $XDG_STATE_HOME/protondrive/log/ with daily rotation,
     // keeping them out of systemd journal and making "Copy Diagnostics" easy.
@@ -91,8 +97,53 @@ fn main() -> Result<()> {
 
     let app = adw::Application::builder().application_id(APP_ID).build();
     app.connect_activate(move |app| {
+        // Show crash-report dialog if previous runs crashed.
+        maybe_show_crash_dialog(app);
         ui::build_main_window(app, daemon.clone(), sync_ctrl.clone())
     });
     app.run();
     Ok(())
+}
+
+/// If crash reports from previous runs exist, show a simple dialog
+/// letting the user view and dismiss them.
+fn maybe_show_crash_dialog(app: &adw::Application) {
+    let reports = crash::pending_reports();
+    if reports.is_empty() {
+        return;
+    }
+
+    let count = reports.len();
+    let latest = std::fs::read_to_string(&reports[reports.len() - 1])
+        .unwrap_or_else(|_| "(unreadable)".to_string());
+
+    let body = format!(
+        "The app crashed during a previous session.\n\nMost recent crash:\n{latest}\n\
+         Crash reports are saved to:\n{}",
+        crash::crash_dir().display()
+    );
+
+    let dialog = adw::MessageDialog::builder()
+        .heading(format!(
+            "ProtonDrive crashed {} time{}",
+            count,
+            if count == 1 { "" } else { "s" }
+        ))
+        .body(body)
+        .modal(true)
+        .application(app)
+        .build();
+
+    dialog.add_response("dismiss", "Dismiss");
+    dialog.add_response("clear", "Clear Reports");
+    dialog.set_default_response(Some("dismiss"));
+    dialog.set_close_response("dismiss");
+
+    dialog.connect_response(None, move |_, response| {
+        if response == "clear" {
+            crash::clear_reports();
+        }
+    });
+
+    dialog.present();
 }
