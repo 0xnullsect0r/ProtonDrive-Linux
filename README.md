@@ -1,32 +1,33 @@
 # ProtonDrive-Linux
 
 An unofficial native Linux client for [Proton Drive](https://proton.me/drive),
-written in Rust.
+written in Rust with a Go CGO bridge to the official Proton API library.
 
-It mounts your Proton Drive as a **FUSE filesystem at `/mnt/ProtonDrive`** so
-it appears as a device in your file manager — much like the official Windows
-and macOS clients. Aggressive local cache, system-tray icon, and a
-GTK 4 / libadwaita setup wizard.
+Your Proton Drive appears as a **FUSE virtual filesystem at `/mnt/ProtonDrive`**
+(or `~/ProtonDrive`) so it shows up in your file manager like the official
+Windows and macOS clients. Files are **fetched on demand** — only the directory
+tree is kept locally; file content is downloaded the moment you open it.
 
-> ⚠️ **Status:** early scaffolding. The architecture, FUSE skeleton, cache,
-> setup UI, system tray, keyring, config, and CI/release pipeline are in
-> place. The Proton-specific protocol pieces (SRP authentication, Drive REST
-> endpoints, PGP key/block decryption) are stubbed and need to be filled in
-> by porting from the official open-source clients at
-> <https://github.com/ProtonDriveApps>.
+> ⚠️ **Unofficial third-party app.** Not affiliated with or endorsed by Proton AG.
 
 ---
 
 ## Features
 
-- Mounts your Proton Drive as a **FUSE filesystem at `/mnt/ProtonDrive`**.
-- Aggressive **local cache** (content-addressed blob store + SQLite metadata).
-- **"Always available offline"** pinning per file or folder.
-- Polls Proton for changes every **20 seconds**, plus *Refresh now* in the tray.
-- **GTK 4 + libadwaita** setup window.
+- **On-demand FUSE VFS** — directory tree cached locally; file bodies downloaded
+  only when accessed.
+- **Streaming BFS scan** — initial sync walks the entire Drive tree incrementally
+  via the Drive Events API (no recursive full-walk, respects Proton's ToS).
+- **Batch SQLite state** — mapping table written in single transactions with
+  `WAL + synchronous=NORMAL`; handles 100 k+ file drives without stalling.
+- **GTK 4 + libadwaita** setup wizard.
 - **System tray** icon (StatusNotifierItem via `ksni`) — works on **GNOME,
   KDE Plasma, Budgie, and Cinnamon**.
-- Credentials and TOTP secret stored in your **system keyring** (libsecret).
+- **Automatic CAPTCHA solving** — if Proton presents a Human Verification
+  challenge (error 9001) the app solves the drag-puzzle automatically using
+  an embedded WebKit view.
+- Credentials and TOTP secret stored in your **system keyring** (libsecret /
+  GNOME Keyring / KWallet). The raw password is **never** stored on disk.
 
 ---
 
@@ -42,7 +43,7 @@ Pick the one for your distro.
 ### Debian / Ubuntu / Mint / Pop!\_OS / Elementary / Zorin
 
 ```bash
-# Replace X.Y.Z with the latest release version (e.g. 0.1.5)
+# Replace X.Y.Z with the latest release version (e.g. 0.1.22)
 VER=X.Y.Z
 curl -LO https://github.com/0xnullsect0r/ProtonDrive-Linux/releases/download/v${VER}/protondrive-linux_${VER}_amd64.deb
 sudo apt install ./protondrive-linux_${VER}_amd64.deb
@@ -72,6 +73,13 @@ curl -LO https://github.com/0xnullsect0r/ProtonDrive-Linux/releases/download/v${
 makepkg -si
 ```
 
+Or install directly from the AUR:
+
+```bash
+yay -S protondrive-linux
+# or: paru -S protondrive-linux
+```
+
 ### Flatpak (any distro with Flathub-style runtimes)
 
 ```bash
@@ -92,19 +100,6 @@ chmod +x protondrive-linux-${VER}-x86_64.AppImage
 ./protondrive-linux-${VER}-x86_64.AppImage
 ```
 
-The AppImage requires `fuse2` (or libfuse2t64 on Ubuntu 24.04+) at runtime:
-
-```bash
-# Debian/Ubuntu
-sudo apt install libfuse2t64    # 24.04+ uses libfuse2t64; older uses libfuse2
-
-# Fedora
-sudo dnf install fuse-libs
-
-# Arch
-sudo pacman -S fuse2
-```
-
 ---
 
 ## First run
@@ -115,9 +110,8 @@ sudo pacman -S fuse2
    - Proton **email** and **password**
    - **TOTP secret** — the Base32 *key* used to generate codes,
      not a 6-digit code (export it from your authenticator app)
-   - **Sync folder** (default `/mnt/ProtonDrive`)
-   - **Cache size** cap (default 5 GiB)
-3. After saving, the tray icon appears and your Drive is mounted.
+   - **Sync folder** (default `~/ProtonDrive`)
+3. After saving, the tray icon appears and your Drive tree is populated.
    Open your file manager and look for **ProtonDrive** in the sidebar.
 
 Credentials are stored in your **system keyring** (GNOME Keyring / KWallet),
@@ -130,7 +124,7 @@ not in plain text on disk.
 System dependencies (Arch names; use the equivalents on your distro):
 
 ```
-rust >= 1.88   gtk4   libadwaita   fuse3   libsecret   openssl   pkgconf   go
+rust >= 1.88   gtk4   libadwaita   fuse3   libsecret   openssl   pkgconf   go >= 1.22
 ```
 
 ```bash
@@ -147,15 +141,43 @@ cargo build --release
 ```
 crates/
   protondrive-core     library: auth, API client, crypto, cache, sync, types
-  protondrive-bridge   thin Rust wrapper around the official Proton Drive Go SDK
-  protondrive-fuse     FUSE filesystem implementation (binary `protondrive-fs`)
+  protondrive-bridge   CGO bridge to henrybear327/Proton-API-Bridge (Go)
+    go/                Go source: bridge.go + proton-api-bridge-fork/
+    go/integration/    Live integration test (separate Go module)
   protondrive-ui       GTK4 + libadwaita setup/settings UI + tray
                        (binary `protondrive` — the user-facing app)
+  protondrive-sync     4-stage sync engine (reconcile → conflict → propagate → consolidate)
   protondrive-cli      headless CLI for scripting / debugging
                        (binary `protondrive-cli`)
 packaging/
   deb/  rpm/  arch/  flatpak/  appimage/   per-format build assets
 ```
+
+---
+
+## CI Integration Testing
+
+The repository includes a live integration test at
+`crates/protondrive-bridge/go/integration/`. It logs into the real Proton
+Drive API, lists the root folder, and asserts at least one item is returned.
+
+To enable it, add three secrets to your fork/repository in
+**Settings → Secrets and variables → Actions**:
+
+| Secret name       | Value                                                              |
+|-------------------|--------------------------------------------------------------------|
+| `PROTON_USER`     | Your Proton account email                                          |
+| `PROTON_PASSWORD` | Your Proton account password                                       |
+| `PROTON_KEY`      | Your TOTP secret key (Base32, e.g. `JBSWY3DPEHPK3PXP…`) — **not** a 6-digit code |
+
+The integration workflow (`.github/workflows/integration.yml`) runs on every
+push to `main` and on manual dispatch. It is **silently skipped** when the
+secrets are absent (e.g. on forks or PRs from external contributors).
+
+If Proton presents a Human Verification (CAPTCHA) challenge during the test,
+the solver uses headless Chromium to drag the puzzle piece to the correct slot
+using normalised cross-correlation template matching and a realistic Bézier
+mouse path with random jitter.
 
 ---
 
@@ -167,8 +189,8 @@ workspace version automatically — you do **not** need to bump `Cargo.toml`
 yourself. Any tag not matching `vX.Y.Z` is ignored.
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.23
+git push origin v0.1.23
 ```
 
 ---
@@ -183,9 +205,9 @@ GPL-3.0-or-later.
 
 ### "For security reasons, please complete the CAPTCHA" / Code 9001
 
-Proton challenges sign-in attempts from new IPs or unfamiliar clients with a
-CAPTCHA / Human Verification. Native (non-browser) clients can't solve it
-in-app. Workaround:
+Since v0.1.10+, the app handles this automatically using an embedded headless
+browser. If the auto-solver fails (e.g. Proton changes the captcha layout),
+you can work around it manually:
 
 1. Open <https://account.proton.me> in your browser **on this same machine**
    and sign in there once, solving any CAPTCHA Proton presents.
@@ -206,3 +228,14 @@ Make sure you pasted the **secret key** (Base32, e.g. `JBSWY3DPEHPK3PXP…`),
 not a 6-digit code. Strip spaces. The current generated code is shown live
 on the Two-Factor tab — verify it matches your authenticator app before
 signing in.
+
+### Files not appearing in the folder
+
+ProtonDrive-Linux uses on-demand FUSE — the directory tree populates
+immediately, but file content is fetched only when you open the file.
+If the folder appears empty, check:
+
+1. The tray icon is not showing an error (red ×).
+2. Run `journalctl --user -u protondrive -f` to see live log output.
+3. Ensure the FUSE mount is active: `mount | grep ProtonDrive`.
+

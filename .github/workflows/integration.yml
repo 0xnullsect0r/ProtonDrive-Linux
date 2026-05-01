@@ -1,0 +1,56 @@
+name: Integration Test
+
+# Runs on push to main (and manually) when Proton credentials are available.
+# Skipped automatically when the secrets are not set (e.g. fork PRs).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  integration:
+    name: Live Proton Drive API test
+    runs-on: ubuntu-24.04
+    # Skip the job entirely when secrets are absent (forks / missing setup).
+    if: ${{ secrets.PROTON_USER != '' }}
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: false
+
+      # Chromium is required for the headless captcha solver.
+      - name: Install Chromium
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            chromium-browser \
+            chromium-chromedriver \
+            fonts-liberation \
+            libatk-bridge2.0-0 \
+            libgtk-3-0 \
+            libx11-xcb1 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxfixes3 \
+            libxrandr2 \
+            libxss1 \
+            libxtst6 \
+            ca-certificates
+
+      - name: Run integration test
+        working-directory: crates/protondrive-bridge/go/integration
+        env:
+          PROTON_USER: ${{ secrets.PROTON_USER }}
+          PROTON_PASSWORD: ${{ secrets.PROTON_PASSWORD }}
+          PROTON_KEY: ${{ secrets.PROTON_KEY }}
+          # Tell chromedp where to find the system Chromium binary.
+          CHROMEDP_NO_SANDBOX: "1"
+        run: |
+          go mod tidy
+          go run . 

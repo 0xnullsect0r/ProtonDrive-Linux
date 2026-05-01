@@ -43,7 +43,7 @@ impl State {
             let _ = std::fs::create_dir_all(p);
         }
         let conn = Connection::open(path)?;
-        conn.execute_batch("PRAGMA journal_mode=WAL;")?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")?;
         run_migrations(&conn)?;
         Ok(Self { conn })
     }
@@ -88,7 +88,63 @@ impl State {
         Ok(self.conn.last_insert_rowid())
     }
 
-    /// Mark a file as materialized (content present in cache) or not.
+    /// Upsert many mappings inside a single transaction.
+    ///
+    /// For the initial scan (tens of thousands of entries) this is
+    /// dramatically faster than individual auto-commit inserts.
+    pub fn upsert_mappings_batch(&self, mappings: &[Mapping]) -> Result<(), StateError> {
+        if mappings.is_empty() {
+            return Ok(());
+        }
+        self.conn.execute_batch("BEGIN;")?;
+        let result = (|| {
+            let mut stmt = self.conn.prepare_cached(
+                "INSERT INTO mappings(rel_path, link_id, parent_link_id, is_folder,
+                    local_size, local_mtime, local_hash,
+                    remote_size, remote_mtime, remote_hash, is_materialized)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
+                 ON CONFLICT(rel_path) DO UPDATE SET
+                    link_id=excluded.link_id,
+                    parent_link_id=excluded.parent_link_id,
+                    is_folder=excluded.is_folder,
+                    local_size=excluded.local_size,
+                    local_mtime=excluded.local_mtime,
+                    local_hash=excluded.local_hash,
+                    remote_size=excluded.remote_size,
+                    remote_mtime=excluded.remote_mtime,
+                    remote_hash=excluded.remote_hash,
+                    is_materialized=excluded.is_materialized",
+            )?;
+            for m in mappings {
+                stmt.execute(params![
+                    m.rel_path,
+                    m.link_id,
+                    m.parent_link_id,
+                    m.is_folder as i32,
+                    m.local_size,
+                    m.local_mtime,
+                    m.local_hash,
+                    m.remote_size,
+                    m.remote_mtime,
+                    m.remote_hash,
+                    m.is_materialized as i32,
+                ])?;
+            }
+            Ok::<(), StateError>(())
+        })();
+        match result {
+            Ok(()) => {
+                self.conn.execute_batch("COMMIT;")?;
+                Ok(())
+            }
+            Err(e) => {
+                let _ = self.conn.execute_batch("ROLLBACK;");
+                Err(e)
+            }
+        }
+    }
+
+
     pub fn set_materialized(&self, link_id: &str, value: bool) -> Result<(), StateError> {
         self.conn.execute(
             "UPDATE mappings SET is_materialized=?1 WHERE link_id=?2",

@@ -21,7 +21,99 @@ pub struct Propagator {
 
 impl Propagator {
     pub async fn apply(&self, ops: Vec<Operation>) {
+        // Separate pure-state ops (no network I/O) from ops that need the bridge.
+        // Batching the state-only ops into a single transaction is dramatically
+        // faster on large initial scans (100K+ files).
+        let mut batch_mappings: Vec<Mapping> = Vec::new();
+        let mut other_ops: Vec<Operation> = Vec::new();
+
         for op in ops {
+            match op {
+                Operation::DownloadNew {
+                    ref rel,
+                    ref link_id,
+                    ref parent_link_id,
+                    size,
+                    mtime,
+                    ..
+                } => {
+                    let parent = if parent_link_id.is_empty() {
+                        match self.parent_link_for(rel).await {
+                            Ok(p) => p,
+                            Err(e) => {
+                                tracing::warn!(error=%e, "parent_link_for failed, skipping");
+                                continue;
+                            }
+                        }
+                    } else {
+                        parent_link_id.clone()
+                    };
+                    batch_mappings.push(Mapping {
+                        id: 0,
+                        rel_path: rel.clone(),
+                        link_id: link_id.clone(),
+                        parent_link_id: parent,
+                        is_folder: false,
+                        local_size: size,
+                        local_mtime: mtime,
+                        local_hash: None,
+                        remote_size: size,
+                        remote_mtime: mtime,
+                        remote_hash: None,
+                        is_materialized: false,
+                    });
+                }
+                Operation::CreateLocalDir {
+                    ref rel,
+                    ref link_id,
+                    ref parent_link_id,
+                } => {
+                    let parent = if parent_link_id.is_empty() {
+                        match self.parent_link_for(rel).await {
+                            Ok(p) => p,
+                            Err(e) => {
+                                tracing::warn!(error=%e, "parent_link_for failed, skipping");
+                                continue;
+                            }
+                        }
+                    } else {
+                        parent_link_id.clone()
+                    };
+                    batch_mappings.push(Mapping {
+                        id: 0,
+                        rel_path: rel.clone(),
+                        link_id: link_id.clone(),
+                        parent_link_id: parent,
+                        is_folder: true,
+                        local_size: 0,
+                        local_mtime: 0,
+                        local_hash: None,
+                        remote_size: 0,
+                        remote_mtime: 0,
+                        remote_hash: None,
+                        is_materialized: false,
+                    });
+                }
+                other => other_ops.push(other),
+            }
+        }
+
+        // Commit all placeholder mappings in one transaction.
+        if !batch_mappings.is_empty() {
+            let count = batch_mappings.len();
+            if let Err(e) = self.state.lock().upsert_mappings_batch(&batch_mappings) {
+                tracing::warn!(error=%e, "batch upsert failed");
+            } else {
+                tracing::debug!(count, "batch-inserted placeholder mappings");
+                // Emit a single "synced" event per entry for UI progress.
+                for m in &batch_mappings {
+                    self.emit_synced(&m.rel_path, Direction::Down);
+                }
+            }
+        }
+
+        // Process remaining ops that need the bridge or disk I/O.
+        for op in other_ops {
             if let Err(e) = self.apply_one(op).await {
                 tracing::warn!(error = %e, "propagation step failed");
             }
