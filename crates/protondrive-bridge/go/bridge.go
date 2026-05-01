@@ -202,7 +202,12 @@ func pd_init(argsJSON *C.char) *C.char {
 }
 
 //export pd_login
-func pd_login(sessionID C.longlong, argsJSON *C.char) *C.char {
+func pd_login(sessionID C.longlong, argsJSON *C.char) (ret *C.char) {
+	defer func() {
+		if r := recover(); r != nil {
+			ret = cErrS(fmt.Sprintf("bridge panic in login: %v", r))
+		}
+	}()
 	s, ok := getSession(int64(sessionID))
 	if !ok {
 		return cErrS("invalid session")
@@ -274,7 +279,12 @@ func extractHVDetails(err error) (string, []string) {
 // stored during the preceding pd_login call that returned hv_required.
 //
 //export pd_login_hv
-func pd_login_hv(sessionID C.longlong, argsJSON *C.char) *C.char {
+func pd_login_hv(sessionID C.longlong, argsJSON *C.char) (ret *C.char) {
+	defer func() {
+		if r := recover(); r != nil {
+			ret = cErrS(fmt.Sprintf("bridge panic in login_hv: %v", r))
+		}
+	}()
 	s, ok := getSession(int64(sessionID))
 	if !ok {
 		return cErrS("invalid session")
@@ -374,7 +384,12 @@ func pd_login_hv(sessionID C.longlong, argsJSON *C.char) *C.char {
 }
 
 //export pd_resume
-func pd_resume(sessionID C.longlong, argsJSON *C.char) *C.char {
+func pd_resume(sessionID C.longlong, argsJSON *C.char) (ret *C.char) {
+	defer func() {
+		if r := recover(); r != nil {
+			ret = cErrS(fmt.Sprintf("bridge panic in resume: %v", r))
+		}
+	}()
 	s, ok := getSession(int64(sessionID))
 	if !ok {
 		return cErrS("invalid session")

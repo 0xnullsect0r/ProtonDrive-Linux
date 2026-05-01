@@ -106,8 +106,23 @@ impl Daemon {
                 refresh_token: rt,
                 salted_key_pass: skp,
             })
-            .await
-            .map_err(|e| crate::Error::Auth(e.to_string()))?;
+            .await;
+        // If resume fails (e.g. expired/invalid tokens), wipe stale credentials
+        // so the user gets the sign-in screen rather than repeated failures.
+        let cred = match cred {
+            Ok(c) => c,
+            Err(e) => {
+                let kr2 =
+                    Keyring::for_account(self.config.lock().email.clone().unwrap_or_default());
+                let _ = tokio::join!(
+                    kr2.delete(Slot::Uid),
+                    kr2.delete(Slot::AccessToken),
+                    kr2.delete(Slot::RefreshToken),
+                    kr2.delete(Slot::SaltedKeyPass),
+                );
+                return Err(crate::Error::Auth(e.to_string()));
+            }
+        };
         self.persist_credential(&cred).await?;
         self.authenticated.store(true, Ordering::Relaxed);
         Ok(true)

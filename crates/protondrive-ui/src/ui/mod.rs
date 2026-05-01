@@ -1070,7 +1070,7 @@ fn on_login_success(
 fn page_settings(daemon: Daemon) -> gtk4::Widget {
     // ── Sync folder & cache ────────────────────────────────────────
     let folder_group = adw::PreferencesGroup::builder()
-        .title("Sync Folder & Cache")
+        .title("Sync Folder &amp; Cache")
         .description("Files in this folder are kept in sync with your Proton Drive.")
         .build();
 
@@ -1160,7 +1160,7 @@ fn page_settings(daemon: Daemon) -> gtk4::Widget {
 
     // ── Startup & integration ──────────────────────────────────────
     let startup_group = adw::PreferencesGroup::builder()
-        .title("Startup & Integration")
+        .title("Startup &amp; Integration")
         .build();
 
     let autostart_row = adw::SwitchRow::builder()
