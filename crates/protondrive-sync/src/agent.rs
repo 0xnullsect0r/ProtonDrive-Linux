@@ -92,6 +92,44 @@ impl SyncAgent {
         }
     }
 
+    /// Like `new_with_resync`, but accepts a pre-existing state Arc so it can
+    /// be shared with the FUSE layer.
+    pub fn new_with_state_and_resync(
+        bridge: Bridge,
+        state: Arc<parking_lot::Mutex<State>>,
+        root: PathBuf,
+        resync_rx: mpsc::UnboundedReceiver<()>,
+    ) -> Self {
+        let (tx, _) = broadcast::channel(256);
+        Self {
+            bridge,
+            state,
+            root,
+            events_tx: tx,
+            excluded_paths: Vec::new(),
+            resync_rx: Some(resync_rx),
+        }
+    }
+
+    /// Like `new`, but accepts a pre-existing state Arc.
+    #[allow(dead_code)]
+    pub fn new_with_state(
+        bridge: Bridge,
+        state: Arc<parking_lot::Mutex<State>>,
+        root: PathBuf,
+    ) -> Self {
+        let (tx, _) = broadcast::channel(256);
+        Self {
+            bridge,
+            state,
+            root,
+            events_tx: tx,
+            excluded_paths: Vec::new(),
+            resync_rx: None,
+        }
+    }
+
+
     pub fn subscribe(&self) -> broadcast::Receiver<SyncEvent> {
         self.events_tx.subscribe()
     }

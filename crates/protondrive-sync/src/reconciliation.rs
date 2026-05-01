@@ -20,7 +20,10 @@ pub enum Operation {
     DownloadNew {
         rel: String,
         link_id: String,
+        parent_link_id: String,
         is_folder: bool,
+        size: i64,
+        mtime: i64,
     },
     DownloadUpdate {
         mapping: Mapping,
@@ -34,6 +37,7 @@ pub enum Operation {
     CreateLocalDir {
         rel: String,
         link_id: String,
+        parent_link_id: String,
     },
     CreateRemoteDir {
         rel: String,
@@ -108,12 +112,16 @@ pub fn reconcile(obs: Observations, excluded: &[String]) -> Vec<Operation> {
                 ops.push(Operation::CreateLocalDir {
                     rel: entry.name,
                     link_id: entry.link_id,
+                    parent_link_id: entry.parent_id,
                 });
             } else {
                 ops.push(Operation::DownloadNew {
                     rel: entry.name,
                     link_id: entry.link_id,
+                    parent_link_id: entry.parent_id,
                     is_folder: false,
+                    size: entry.size,
+                    mtime: entry.modify_time,
                 });
             }
         }
@@ -143,6 +151,7 @@ fn shell_mapping(rel: &str) -> Mapping {
         remote_size: 0,
         remote_mtime: 0,
         remote_hash: None,
+        is_materialized: false,
     }
 }
 

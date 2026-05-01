@@ -14,6 +14,7 @@ path = "src/main.rs"
 [dependencies]
 protondrive-core = { path = "../protondrive-core" }
 protondrive-sync = { path = "../protondrive-sync" }
+protondrive-fuse = { path = "../protondrive-fuse" }
 tokio.workspace        = true
 anyhow.workspace       = true
 tracing.workspace      = true

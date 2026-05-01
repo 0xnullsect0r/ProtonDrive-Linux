@@ -28,6 +28,9 @@ pub struct Mapping {
     pub remote_size: i64,
     pub remote_mtime: i64,
     pub remote_hash: Option<String>,
+    /// True if the file content is present on local disk; false for
+    /// virtual placeholder entries served by the FUSE layer.
+    pub is_materialized: bool,
 }
 
 pub struct State {
@@ -55,8 +58,8 @@ impl State {
         self.conn.execute(
             "INSERT INTO mappings(rel_path, link_id, parent_link_id, is_folder,
                 local_size, local_mtime, local_hash,
-                remote_size, remote_mtime, remote_hash)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
+                remote_size, remote_mtime, remote_hash, is_materialized)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
              ON CONFLICT(rel_path) DO UPDATE SET
                 link_id=excluded.link_id,
                 parent_link_id=excluded.parent_link_id,
@@ -66,7 +69,8 @@ impl State {
                 local_hash=excluded.local_hash,
                 remote_size=excluded.remote_size,
                 remote_mtime=excluded.remote_mtime,
-                remote_hash=excluded.remote_hash",
+                remote_hash=excluded.remote_hash,
+                is_materialized=excluded.is_materialized",
             params![
                 m.rel_path,
                 m.link_id,
@@ -78,9 +82,47 @@ impl State {
                 m.remote_size,
                 m.remote_mtime,
                 m.remote_hash,
+                m.is_materialized as i32,
             ],
         )?;
         Ok(self.conn.last_insert_rowid())
+    }
+
+    /// Mark a file as materialized (content present in cache) or not.
+    pub fn set_materialized(&self, link_id: &str, value: bool) -> Result<(), StateError> {
+        self.conn.execute(
+            "UPDATE mappings SET is_materialized=?1 WHERE link_id=?2",
+            params![value as i32, link_id],
+        )?;
+        Ok(())
+    }
+
+    /// List all direct children of a parent directory.
+    pub fn list_children_by_parent(
+        &self,
+        parent_link_id: &str,
+    ) -> Result<Vec<Mapping>, StateError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, rel_path, link_id, parent_link_id, is_folder,
+                    local_size, local_mtime, local_hash,
+                    remote_size, remote_mtime, remote_hash, is_materialized
+               FROM mappings WHERE parent_link_id = ?1",
+        )?;
+        let rows = stmt.query_map(params![parent_link_id], row_to_mapping)?;
+        rows.collect::<Result<_, _>>().map_err(StateError::from)
+    }
+
+    /// List every mapping in the database (used to pre-populate the inode
+    /// table on FUSE mount).
+    pub fn list_all(&self) -> Result<Vec<Mapping>, StateError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, rel_path, link_id, parent_link_id, is_folder,
+                    local_size, local_mtime, local_hash,
+                    remote_size, remote_mtime, remote_hash, is_materialized
+               FROM mappings",
+        )?;
+        let rows = stmt.query_map([], row_to_mapping)?;
+        rows.collect::<Result<_, _>>().map_err(StateError::from)
     }
 
     pub fn delete_by_rel(&self, rel: &str) -> Result<(), StateError> {
@@ -93,7 +135,7 @@ impl State {
         let mut stmt = self.conn.prepare(
             "SELECT id, rel_path, link_id, parent_link_id, is_folder,
                             local_size, local_mtime, local_hash,
-                            remote_size, remote_mtime, remote_hash
+                            remote_size, remote_mtime, remote_hash, is_materialized
                        FROM mappings WHERE rel_path = ?1",
         )?;
         let mut rows = stmt.query(params![rel])?;
@@ -108,7 +150,7 @@ impl State {
         let mut stmt = self.conn.prepare(
             "SELECT id, rel_path, link_id, parent_link_id, is_folder,
                     local_size, local_mtime, local_hash,
-                    remote_size, remote_mtime, remote_hash
+                    remote_size, remote_mtime, remote_hash, is_materialized
                FROM mappings WHERE link_id = ?1",
         )?;
         let mut rows = stmt.query(params![link_id])?;
@@ -124,7 +166,7 @@ impl State {
         let mut stmt = self.conn.prepare(
             "SELECT id, rel_path, link_id, parent_link_id, is_folder,
                     local_size, local_mtime, local_hash,
-                    remote_size, remote_mtime, remote_hash
+                    remote_size, remote_mtime, remote_hash, is_materialized
                FROM mappings WHERE rel_path LIKE ?1",
         )?;
         let rows = stmt.query_map(params![pat], row_to_mapping)?;
@@ -166,6 +208,7 @@ fn row_to_mapping(row: &rusqlite::Row<'_>) -> Result<Mapping, rusqlite::Error> {
         remote_size: row.get(8)?,
         remote_mtime: row.get(9)?,
         remote_hash: row.get(10)?,
+        is_materialized: row.get::<_, i32>(11)? != 0,
     })
 }
 
@@ -212,6 +255,10 @@ CREATE TABLE IF NOT EXISTS events_cursor (
     value INTEGER NOT NULL
 );
 "#,
+    // v1 → v2: add is_materialized column for FUSE virtual placeholders
+    r#"
+ALTER TABLE mappings ADD COLUMN is_materialized INTEGER NOT NULL DEFAULT 0;
+"#,
 ];
 
 pub fn default_state_path() -> PathBuf {
@@ -239,6 +286,7 @@ mod tests {
             remote_size: 10,
             remote_mtime: 1,
             remote_hash: Some("h".into()),
+            is_materialized: false,
         };
         s.upsert_mapping(&m).unwrap();
         let got = s.get_by_rel("a/b.txt").unwrap().unwrap();

@@ -47,14 +47,22 @@ impl Propagator {
                 let parent = self.parent_link_for(&rel).await?;
                 let name = leaf(&rel).to_string();
                 let id = retry(|| self.bridge.create_folder(&parent, &name)).await?;
-                self.record_mapping(&rel, &id, &parent, true, 0, 0)?;
+                self.record_mapping(&rel, &id, &parent, true, 0, 0, false)?;
                 self.emit_synced(&rel, Direction::Up);
             }
-            Operation::CreateLocalDir { rel, link_id } => {
-                let abs = self.root.join(&rel);
-                std::fs::create_dir_all(&abs)?;
-                let parent = self.parent_link_for(&rel).await?;
-                self.record_mapping(&rel, &link_id, &parent, true, 0, 0)?;
+            Operation::CreateLocalDir {
+                rel,
+                link_id,
+                parent_link_id,
+            } => {
+                // Directories are served virtually by the FUSE layer;
+                // we just record the mapping so readdir can list them.
+                let parent = if parent_link_id.is_empty() {
+                    self.parent_link_for(&rel).await?
+                } else {
+                    parent_link_id
+                };
+                self.record_mapping(&rel, &link_id, &parent, true, 0, 0, false)?;
                 self.emit_synced(&rel, Direction::Down);
             }
             Operation::UploadNew {
@@ -79,7 +87,7 @@ impl Propagator {
                 let size = std::fs::metadata(&path)
                     .map(|m| m.len() as i64)
                     .unwrap_or(0);
-                self.record_mapping(&rel, &result.link_id, &parent, false, size, now())?;
+                self.record_mapping(&rel, &result.link_id, &parent, false, size, now(), true)?;
                 self.emit_synced(&rel, Direction::Up);
             }
             Operation::UploadUpdate { mapping, path } => {
@@ -108,47 +116,46 @@ impl Propagator {
                     false,
                     size,
                     now(),
+                    true,
                 )?;
                 self.emit_synced(&mapping.rel_path, Direction::Up);
             }
-            Operation::DownloadNew { rel, link_id, .. } => {
-                let abs = self.root.join(&rel);
-                if let Some(p) = abs.parent() {
-                    std::fs::create_dir_all(p)?;
-                }
-                let bridge = self.bridge.clone();
-                let id2 = link_id.clone();
-                let abs2 = abs.clone();
-                let size = retry(|| {
-                    let bridge = bridge.clone();
-                    let id2 = id2.clone();
-                    let abs2 = abs2.clone();
-                    async move { bridge.download(&id2, &abs2).await }
-                })
-                .await?;
-                let parent = self.parent_link_for(&rel).await?;
-                self.record_mapping(&rel, &link_id, &parent, false, size, now())?;
+            Operation::DownloadNew {
+                rel,
+                link_id,
+                parent_link_id,
+                size,
+                mtime,
+                ..
+            } => {
+                // Files are served on-demand by the FUSE layer.
+                // Just record the mapping as a placeholder (not materialized).
+                let parent = if parent_link_id.is_empty() {
+                    self.parent_link_for(&rel).await?
+                } else {
+                    parent_link_id
+                };
+                self.record_mapping(&rel, &link_id, &parent, false, size, mtime, false)?;
                 self.emit_synced(&rel, Direction::Down);
             }
             Operation::DownloadUpdate { mapping } => {
-                let abs = self.root.join(&mapping.rel_path);
-                let bridge = self.bridge.clone();
-                let id2 = mapping.link_id.clone();
-                let abs2 = abs.clone();
-                let size = retry(|| {
-                    let bridge = bridge.clone();
-                    let id2 = id2.clone();
-                    let abs2 = abs2.clone();
-                    async move { bridge.download(&id2, &abs2).await }
-                })
-                .await?;
+                // Invalidate the cache file if it exists so the FUSE layer
+                // will re-download on next access.
+                let cache_dir = directories::BaseDirs::new()
+                    .map(|b| b.cache_dir().join("protondrive").join("files"))
+                    .unwrap_or_else(|| std::path::PathBuf::from("/tmp/protondrive-cache"));
+                let cache_path = cache_dir.join(&mapping.link_id);
+                if cache_path.exists() {
+                    let _ = std::fs::remove_file(&cache_path);
+                }
                 self.record_mapping(
                     &mapping.rel_path,
                     &mapping.link_id,
                     &mapping.parent_link_id,
                     mapping.is_folder,
-                    size,
-                    now(),
+                    mapping.remote_size,
+                    mapping.remote_mtime,
+                    false,
                 )?;
                 self.emit_synced(&mapping.rel_path, Direction::Down);
             }
@@ -201,7 +208,7 @@ impl Propagator {
                 continue;
             }
             let id = self.bridge.create_folder(&cur, seg).await?;
-            self.record_mapping(&acc, &id, &cur, true, 0, 0)?;
+            self.record_mapping(&acc, &id, &cur, true, 0, 0, false)?;
             cur = id;
         }
         Ok(cur)
@@ -215,6 +222,7 @@ impl Propagator {
         is_folder: bool,
         size: i64,
         mtime: i64,
+        is_materialized: bool,
     ) -> anyhow::Result<()> {
         let m = Mapping {
             id: 0,
@@ -228,6 +236,7 @@ impl Propagator {
             remote_size: size,
             remote_mtime: mtime,
             remote_hash: None,
+            is_materialized,
         };
         self.state.lock().upsert_mapping(&m)?;
         Ok(())

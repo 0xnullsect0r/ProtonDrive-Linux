@@ -25,6 +25,10 @@ pub struct SyncController {
     ui_tx: Arc<Mutex<Option<Sender<SyncEvent>>>>,
     /// Async-channel receiver — handed out to UI once.
     pub ui_rx: Arc<Mutex<Option<Receiver<SyncEvent>>>>,
+    /// Active FUSE mount session — dropped to unmount.
+    fuse_session: Arc<Mutex<Option<protondrive_fuse::FuseSession>>>,
+    /// Shared SQLite state with the FUSE layer.
+    shared_state: Arc<Mutex<Option<Arc<parking_lot::Mutex<State>>>>>,
 }
 
 impl SyncController {
@@ -37,6 +41,8 @@ impl SyncController {
             resync_tx: Arc::new(Mutex::new(None)),
             ui_tx: Arc::new(Mutex::new(Some(ui_tx))),
             ui_rx: Arc::new(Mutex::new(Some(ui_rx))),
+            fuse_session: Arc::new(Mutex::new(None)),
+            shared_state: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -57,7 +63,7 @@ impl SyncController {
     /// Start (or restart) the sync agent for the given daemon.
     /// Safe to call from any thread (uses the tokio Handle).
     pub fn start(&self, daemon: &Daemon) -> anyhow::Result<()> {
-        // Stop any existing agent.
+        // Stop any existing agent (and FUSE mount).
         self.stop_internal();
 
         let bridge = daemon
@@ -71,10 +77,47 @@ impl SyncController {
         let _ = std::fs::create_dir_all(&root);
 
         let state_path = default_state_path();
-        let state = State::open(&state_path)?;
+        let state = Arc::new(parking_lot::Mutex::new(State::open(&state_path)?));
+        *self.shared_state.lock() = Some(state.clone());
+
+        // Fetch root_link_id to start the FUSE mount.  pd_root_link_id() reads
+        // in-memory Go state so it's very fast even though it goes through
+        // spawn_blocking.
+        let root_link_id = {
+            let b = bridge.clone();
+            match self.rt.block_on(async move { b.root_link_id().await }) {
+                Ok(id) => Some(id),
+                Err(e) => {
+                    tracing::warn!(error=%e, "could not get root_link_id for FUSE; skipping mount");
+                    None
+                }
+            }
+        };
+
+        // Start FUSE virtual filesystem.
+        if let Some(rid) = root_link_id {
+            let cache_dir = dirs::cache_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+                .join("protondrive")
+                .join("files");
+            let mount_root = root.clone();
+            let fuse_state = state.clone();
+            let fuse_bridge = bridge.clone();
+            let rt_handle = self.rt.clone();
+
+            match protondrive_fuse::mount(fuse_state, fuse_bridge, cache_dir, &mount_root, rid, rt_handle) {
+                Ok(session) => {
+                    *self.fuse_session.lock() = Some(session);
+                    tracing::info!("FUSE mount started at {}", mount_root.display());
+                }
+                Err(e) => {
+                    tracing::warn!(error=%e, "FUSE mount failed; files won't appear in folder");
+                }
+            }
+        }
 
         let (resync_tx, resync_rx) = mpsc::unbounded_channel();
-        let mut agent = SyncAgent::new_with_resync(bridge, state, root, resync_rx);
+        let mut agent = SyncAgent::new_with_state_and_resync(bridge, state, root, resync_rx);
         agent.excluded_paths = excluded_paths;
         let broadcast_tx = agent.events_tx.clone();
 
@@ -125,7 +168,7 @@ impl SyncController {
         }
     }
 
-    /// Stop the running agent.
+    /// Stop the running agent and unmount FUSE.
     pub fn stop(&self) {
         self.stop_internal();
     }
@@ -138,12 +181,11 @@ impl SyncController {
 
         if let Some(h) = self.task.lock().take() {
             h.abort();
-            // Block until the aborted task finishes dropping (completes very
-            // quickly since it was just cancelled).  This prevents a new agent
-            // from starting before the old LocalWatcher / notify watcher has
-            // fully dropped, which would otherwise cause a panic in notify's
-            // inotify backend on the overlap.
             let _ = self.rt.block_on(h);
         }
+
+        // Unmount the FUSE filesystem by dropping the BackgroundSession.
+        *self.fuse_session.lock() = None;
+        *self.shared_state.lock() = None;
     }
 }

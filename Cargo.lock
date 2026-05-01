@@ -52,7 +52,7 @@ dependencies = [
  "cfg-if",
  "once_cell",
  "version_check",
- "zerocopy",
+ "zerocopy 0.8.48",
 ]
 
 [[package]]
@@ -1116,6 +1116,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "76ee7a02da4d231650c7cea31349b889be2f45ddb3ef3032d2ec8185f6313fd2"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "fuser"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e697f6f62c20b6fad1ba0f84ae909f25971cf16e735273524e3977c94604cf8"
+dependencies = [
+ "libc",
+ "log",
+ "memchr",
+ "page_size",
+ "pkg-config",
+ "smallvec",
+ "zerocopy 0.7.35",
 ]
 
 [[package]]
@@ -2471,6 +2486,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "page_size"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "30d5b2194ed13191c1999ae0704b7839fb18384fa22e49b57eeaa97d79ce40da"
+dependencies = [
+ "libc",
+ "winapi",
+]
+
+[[package]]
 name = "pango"
 version = "0.20.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2710,7 +2735,7 @@ version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9"
 dependencies = [
- "zerocopy",
+ "zerocopy 0.8.48",
 ]
 
 [[package]]
@@ -2752,7 +2777,7 @@ dependencies = [
 
 [[package]]
 name = "protondrive-bridge"
-version = "0.1.20"
+version = "0.1.21"
 dependencies = [
  "libc",
  "once_cell",
@@ -2766,7 +2791,7 @@ dependencies = [
 
 [[package]]
 name = "protondrive-cli"
-version = "0.1.20"
+version = "0.1.21"
 dependencies = [
  "anyhow",
  "protondrive-core",
@@ -2777,7 +2802,7 @@ dependencies = [
 
 [[package]]
 name = "protondrive-core"
-version = "0.1.20"
+version = "0.1.21"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2815,7 +2840,7 @@ dependencies = [
 
 [[package]]
 name = "protondrive-daemon"
-version = "0.1.20"
+version = "0.1.21"
 dependencies = [
  "anyhow",
  "directories",
@@ -2831,8 +2856,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "protondrive-fuse"
+version = "0.1.21"
+dependencies = [
+ "anyhow",
+ "fuser",
+ "libc",
+ "parking_lot",
+ "protondrive-bridge",
+ "protondrive-sync",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "protondrive-sync"
-version = "0.1.20"
+version = "0.1.21"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2856,7 +2895,7 @@ dependencies = [
 
 [[package]]
 name = "protondrive-ui"
-version = "0.1.20"
+version = "0.1.21"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -2868,6 +2907,7 @@ dependencies = [
  "libadwaita",
  "parking_lot",
  "protondrive-core",
+ "protondrive-fuse",
  "protondrive-sync",
  "serde_json",
  "tokio",
@@ -4891,11 +4931,32 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
+version = "0.7.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b9b4fd18abc82b8136838da5d50bae7bdea537c574d8dc1a34ed098d6c166f0"
+dependencies = [
+ "byteorder",
+ "zerocopy-derive 0.7.35",
+]
+
+[[package]]
+name = "zerocopy"
 version = "0.8.48"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eed437bf9d6692032087e337407a86f04cd8d6a16a37199ed57949d415bd68e9"
 dependencies = [
- "zerocopy-derive",
+ "zerocopy-derive 0.8.48",
+]
+
+[[package]]
+name = "zerocopy-derive"
+version = "0.7.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa4f8080344d4671fb4e831a13ad1e68092748387dfc4f55e356242fae12ce3e"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

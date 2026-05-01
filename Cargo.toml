@@ -4,13 +4,14 @@ members = [
     "crates/protondrive-bridge",
     "crates/protondrive-core",
     "crates/protondrive-sync",
+    "crates/protondrive-fuse",
     "crates/protondrive-daemon",
     "crates/protondrive-ui",
     "crates/protondrive-cli",
 ]
 
 [workspace.package]
-version = "0.1.20"
+version = "0.1.21"
 edition     = "2021"
 license     = "GPL-3.0-or-later"
 authors     = ["ProtonDrive-Linux contributors"]
@@ -57,7 +58,6 @@ bytes        = "1"
 # OS integration
 secret-service = { version = "4", features = ["rt-tokio-crypto-rust"] }
 zbus         = "4"
-fuser        = { version = "0.14", default-features = false }
 libc         = "0.2"
 nix          = { version = "0.29", features = ["fs", "user"] }
 
