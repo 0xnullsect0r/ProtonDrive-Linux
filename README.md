@@ -35,6 +35,10 @@ GTK 4 / libadwaita setup wizard.
 Pre-built packages are attached to every [GitHub Release](https://github.com/0xnullsect0r/ProtonDrive-Linux/releases).
 Pick the one for your distro.
 
+> The snippets below use bash syntax (`VER=X.Y.Z` + `${VER}`). On **fish**,
+> use `set VER X.Y.Z` and `{$VER}` instead — or just paste the URL with the
+> version inlined.
+
 ### Debian / Ubuntu / Mint / Pop!\_OS / Elementary / Zorin
 
 ```bash
@@ -48,26 +52,22 @@ sudo apt install ./protondrive-linux_${VER}_amd64.deb
 
 ```bash
 VER=X.Y.Z
-curl -LO https://github.com/0xnullsect0r/ProtonDrive-Linux/releases/download/v${VER}/protondrive-linux-${VER}-1.x86_64.rpm
+curl -LO https://github.com/0xnullsect0r/ProtonDrive-Linux/releases/download/v${VER}/protondrive-linux-${VER}-1.fc41.x86_64.rpm
 
 # Fedora / RHEL family
-sudo dnf install ./protondrive-linux-${VER}-1.x86_64.rpm
+sudo dnf install ./protondrive-linux-${VER}-1.fc41.x86_64.rpm
 
 # openSUSE
-sudo zypper install ./protondrive-linux-${VER}-1.x86_64.rpm
+sudo zypper install --allow-unsigned-rpm ./protondrive-linux-${VER}-1.fc41.x86_64.rpm
 ```
 
 ### Arch / CachyOS / Manjaro / EndeavourOS
 
+The release ships a ready-to-use `PKGBUILD`; build it locally with `makepkg`:
+
 ```bash
 VER=X.Y.Z
-curl -LO https://github.com/0xnullsect0r/ProtonDrive-Linux/releases/download/v${VER}/protondrive-linux-${VER}-1-x86_64.pkg.tar.zst
-sudo pacman -U protondrive-linux-${VER}-1-x86_64.pkg.tar.zst
-```
-
-Or build from the included `PKGBUILD`:
-
-```bash
+mkdir protondrive-linux && cd protondrive-linux
 curl -LO https://github.com/0xnullsect0r/ProtonDrive-Linux/releases/download/v${VER}/PKGBUILD
 makepkg -si
 ```
@@ -87,9 +87,9 @@ flatpak run me.proton.drive.Linux
 
 ```bash
 VER=X.Y.Z
-curl -LO https://github.com/0xnullsect0r/ProtonDrive-Linux/releases/download/v${VER}/ProtonDrive-Linux-${VER}-x86_64.AppImage
-chmod +x ProtonDrive-Linux-${VER}-x86_64.AppImage
-./ProtonDrive-Linux-${VER}-x86_64.AppImage
+curl -LO https://github.com/0xnullsect0r/ProtonDrive-Linux/releases/download/v${VER}/protondrive-linux-${VER}-x86_64.AppImage
+chmod +x protondrive-linux-${VER}-x86_64.AppImage
+./protondrive-linux-${VER}-x86_64.AppImage
 ```
 
 The AppImage requires `fuse2` (or libfuse2t64 on Ubuntu 24.04+) at runtime:
