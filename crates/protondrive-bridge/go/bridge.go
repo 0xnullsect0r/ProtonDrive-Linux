@@ -17,7 +17,9 @@ import "C"
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -29,16 +31,18 @@ import (
 	bridge "github.com/henrybear327/Proton-API-Bridge"
 	"github.com/henrybear327/Proton-API-Bridge/common"
 	"github.com/henrybear327/go-proton-api"
+	"github.com/go-resty/resty/v2"
 )
 
 // ---------- session registry ----------
 
 type session struct {
-	drive *bridge.ProtonDrive
-	cfg   *common.Config
-	cred  *common.ProtonDriveCredential
-	cancel context.CancelFunc
-	ctx   context.Context
+	drive        *bridge.ProtonDrive
+	cfg          *common.Config
+	cred         *common.ProtonDriveCredential
+	cancel       context.CancelFunc
+	ctx          context.Context
+	pendingLogin *loginArgs // stored when login is blocked by HV (code 9001)
 }
 
 var (
@@ -216,7 +220,146 @@ func pd_login(sessionID C.longlong, argsJSON *C.char) *C.char {
 	}
 	drive, cred, err := bridge.NewProtonDrive(s.ctx, s.cfg, nil, nil)
 	if err != nil {
+		// Check for Human Verification required (code 9001).
+		hvToken, hvMethods := extractHVDetails(err)
+		if hvToken != "" {
+			s.pendingLogin = &a
+			return cReturn(response{OK: map[string]any{
+				"status":   "hv_required",
+				"hv_token": hvToken,
+				"methods":  hvMethods,
+			}})
+		}
 		return cErr(err)
+	}
+	s.drive = drive
+	s.cred = cred
+	return cOK(credDTO{
+		UID:           cred.UID,
+		AccessToken:   cred.AccessToken,
+		RefreshToken:  cred.RefreshToken,
+		SaltedKeyPass: cred.SaltedKeyPass,
+	})
+}
+
+// extractHVDetails inspects an error chain for a proton.APIError with
+// Code 9001 (Human Verification Required) and extracts the token and methods.
+func extractHVDetails(err error) (string, []string) {
+	var apiErr *proton.APIError
+	if !errors.As(err, &apiErr) {
+		return "", nil
+	}
+	if apiErr.Code != proton.HumanVerificationRequired {
+		return "", nil
+	}
+	detailsMap, ok := apiErr.Details.(map[string]interface{})
+	if !ok {
+		return "", nil
+	}
+	token, _ := detailsMap["HumanVerificationToken"].(string)
+	var methods []string
+	if raw, ok := detailsMap["HumanVerificationMethods"].([]interface{}); ok {
+		for _, m := range raw {
+			if s, ok := m.(string); ok {
+				methods = append(methods, s)
+			}
+		}
+	}
+	return token, methods
+}
+
+// pd_login_hv retries the blocked login with an HV solution token.
+// argsJSON: {"hv_type":"captcha","hv_token":"...","two_fa":"..."}.
+// The username/password/mailbox_password are taken from the pending login
+// stored during the preceding pd_login call that returned hv_required.
+//
+//export pd_login_hv
+func pd_login_hv(sessionID C.longlong, argsJSON *C.char) *C.char {
+	s, ok := getSession(int64(sessionID))
+	if !ok {
+		return cErrS("invalid session")
+	}
+	if s.pendingLogin == nil {
+		return cErrS("no pending login — call pd_login first")
+	}
+	var hvArgs struct {
+		HVType  string `json:"hv_type"`
+		HVToken string `json:"hv_token"`
+		TwoFA   string `json:"two_fa"`
+	}
+	if err := json.Unmarshal([]byte(C.GoString(argsJSON)), &hvArgs); err != nil {
+		return cErr(err)
+	}
+
+	pl := s.pendingLogin
+
+	// 1. Build a fresh manager with HV headers injected on every request.
+	m := proton.New(
+		proton.WithAppVersion(s.cfg.AppVersion),
+		proton.WithUserAgent(s.cfg.UserAgent),
+	)
+	hvType := hvArgs.HVType
+	if hvType == "" {
+		hvType = "captcha"
+	}
+	m.AddPreRequestHook(func(_ *resty.Client, req *resty.Request) error {
+		req.SetHeader("x-pm-human-verification-token", hvArgs.HVToken)
+		req.SetHeader("x-pm-human-verification-token-type", hvType)
+		return nil
+	})
+
+	// 2. Authenticate — the HV headers allow the request through.
+	c, auth, err := m.NewClientWithLogin(s.ctx, pl.Username, []byte(pl.Password))
+	if err != nil {
+		return cErr(fmt.Errorf("hv login: %w", err))
+	}
+
+	// 3. 2FA (if enabled and a fresh code was supplied).
+	twoFA := hvArgs.TwoFA
+	if twoFA == "" {
+		twoFA = pl.TwoFA // fall back to the code from the original attempt
+	}
+	if auth.TwoFA.Enabled&proton.HasTOTP != 0 {
+		if twoFA == "" {
+			return cErrS("2FA required but no TOTP code provided")
+		}
+		if err := c.Auth2FA(s.ctx, proton.Auth2FAReq{TwoFactorCode: twoFA}); err != nil {
+			return cErr(fmt.Errorf("hv 2fa: %w", err))
+		}
+	}
+
+	// 4. Compute salted key passphrase.
+	keyPass := []byte(pl.Password)
+	if auth.PasswordMode == proton.TwoPasswordMode && pl.MailboxPassword != "" {
+		keyPass = []byte(pl.MailboxPassword)
+	}
+	user, err := c.GetUser(s.ctx)
+	if err != nil {
+		return cErr(fmt.Errorf("hv get user: %w", err))
+	}
+	salts, err := c.GetSalts(s.ctx)
+	if err != nil {
+		return cErr(fmt.Errorf("hv get salts: %w", err))
+	}
+	saltedKeyPass, err := salts.SaltForKey(keyPass, user.Keys.Primary().ID)
+	if err != nil {
+		return cErr(fmt.Errorf("hv salt key: %w", err))
+	}
+
+	// 5. Switch the session config to reusable-login mode.
+	s.cfg.UseReusableLogin = true
+	s.cfg.ReusableCredential = &common.ReusableCredentialData{
+		UID:           auth.UID,
+		AccessToken:   auth.AccessToken,
+		RefreshToken:  auth.RefreshToken,
+		SaltedKeyPass: base64.StdEncoding.EncodeToString(saltedKeyPass),
+	}
+	s.pendingLogin = nil
+
+	// 6. Init the drive with the pre-computed credential (no auth call).
+	drive, cred, err := bridge.NewProtonDrive(s.ctx, s.cfg, nil, nil)
+	if err != nil {
+		return cErr(fmt.Errorf("hv drive init: %w", err))
 	}
 	s.drive = drive
 	s.cred = cred

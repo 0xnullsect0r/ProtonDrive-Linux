@@ -184,8 +184,9 @@ async fn ensure_bridge(app: &Arc<Mutex<AppState>>) -> Result<Bridge> {
 }
 
 async fn do_login(p: LoginParams, app: &Arc<Mutex<AppState>>) -> Result<LoginResponse> {
+    use protondrive_bridge::LoginOutcome;
     let bridge = ensure_bridge(app).await?;
-    let cred = bridge
+    let outcome = bridge
         .login(LoginArgs {
             username: p.username,
             password: p.password,
@@ -193,6 +194,14 @@ async fn do_login(p: LoginParams, app: &Arc<Mutex<AppState>>) -> Result<LoginRes
             two_fa: p.two_fa,
         })
         .await?;
+    let cred = match outcome {
+        LoginOutcome::Success(c) => c,
+        LoginOutcome::HvRequired { .. } => {
+            return Err(anyhow::anyhow!(
+                "Human verification required — use the GUI to complete CAPTCHA"
+            ))
+        }
+    };
     Ok(LoginResponse {
         uid: cred.uid,
         access_token: cred.access_token,

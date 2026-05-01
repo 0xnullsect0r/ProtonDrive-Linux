@@ -6,7 +6,7 @@
 //! when [`Daemon::start_sync`] is called after a successful login.
 
 use parking_lot::Mutex;
-use protondrive_bridge::{Bridge, InitArgs, LoginArgs};
+use protondrive_bridge::{Bridge, InitArgs, LoginArgs, LoginOutcome};
 use std::sync::Arc;
 
 use crate::config::{Config, Paths};
@@ -104,20 +104,44 @@ impl Daemon {
         password: &str,
         mailbox_password: Option<&str>,
         totp_code: Option<&str>,
-    ) -> Result<()> {
+    ) -> Result<LoginOutcome> {
         self.config.lock().email = Some(email.into());
         self.save_config()?;
         let bridge = self
             .ensure_bridge()
             .await
             .map_err(|e| crate::Error::Other(e.to_string()))?;
-        let cred = bridge
+        let outcome = bridge
             .login(LoginArgs {
                 username: email.into(),
                 password: password.into(),
                 mailbox_password: mailbox_password.unwrap_or_default().into(),
                 two_fa: totp_code.unwrap_or_default().into(),
             })
+            .await
+            .map_err(|e| crate::Error::Auth(e.to_string()))?;
+        if let LoginOutcome::Success(ref cred) = outcome {
+            self.persist_credential(cred).await?;
+        }
+        Ok(outcome)
+    }
+
+    /// Complete a login that was blocked by Human Verification (code 9001).
+    /// `hv_type` is `"captcha"`, `"email"`, or `"sms"`.
+    /// `hv_token` is the solution token from verify.proton.me.
+    /// `fresh_two_fa` is a freshly generated TOTP code (optional).
+    pub async fn login_hv(
+        &self,
+        hv_type: &str,
+        hv_token: &str,
+        fresh_two_fa: Option<&str>,
+    ) -> Result<()> {
+        let bridge = self
+            .ensure_bridge()
+            .await
+            .map_err(|e| crate::Error::Other(e.to_string()))?;
+        let cred = bridge
+            .login_hv(hv_type, hv_token, fresh_two_fa)
             .await
             .map_err(|e| crate::Error::Auth(e.to_string()))?;
         self.persist_credential(&cred).await?;

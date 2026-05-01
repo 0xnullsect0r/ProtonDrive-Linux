@@ -106,6 +106,8 @@ fn page_credentials(daemon: Daemon) -> gtk4::Widget {
     let status = gtk4::Label::new(None);
     status.set_halign(Align::Start);
     status.add_css_class("dim-label");
+    status.set_wrap(true);
+    status.set_max_width_chars(60);
 
     let signin = gtk4::Button::with_label("Sign in");
     signin.add_css_class("suggested-action");
@@ -125,9 +127,7 @@ fn page_credentials(daemon: Daemon) -> gtk4::Widget {
         let totp_secret = totp_c.text().to_string();
         let totp_secret_opt = (!totp_secret.trim().is_empty()).then(|| totp_secret.clone());
 
-        // 1) If a TOTP secret was typed in this session, generate the live code
-        //    from it directly (no keyring round-trip needed).
-        // 2) Otherwise, fall back to a previously-saved secret in the keyring.
+        // Generate live TOTP code from the typed secret or keyring-stored secret.
         let kr_email = email_text.clone();
         let totp_code: Option<String> = match totp_secret_opt.as_ref() {
             Some(s) => protondrive_core::auth::totp::current_code(s).ok(),
@@ -150,8 +150,7 @@ fn page_credentials(daemon: Daemon) -> gtk4::Widget {
             .flatten(),
         };
 
-        // Persist the freshly-typed TOTP secret to the keyring so future
-        // sign-ins / token refreshes succeed without re-typing it.
+        // Persist a freshly typed TOTP secret to the keyring.
         if let Some(s) = totp_secret_opt.clone() {
             let kr_store_email = email_text.clone();
             std::thread::spawn(move || {
@@ -170,10 +169,14 @@ fn page_credentials(daemon: Daemon) -> gtk4::Widget {
 
         btn.set_sensitive(false);
         status_c.set_text("Signing in…");
+
         let daemon_login = daemon_c.clone();
         let status_done = status_c.clone();
         let btn_done = btn.clone();
-        let (tx, rx) = async_channel::bounded::<std::result::Result<(), String>>(1);
+        // Channel carries Result: Ok(Option<(hv_token, methods)>) on HV, Ok(None) on success, Err on failure.
+        let (tx, rx) = async_channel::bounded::<std::result::Result<Option<(String, Vec<String>)>, String>>(1);
+        let email_for_hv = email_text.clone();
+        let totp_secret_for_hv = totp_secret_opt.clone();
         std::thread::spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -187,33 +190,97 @@ fn page_credentials(daemon: Daemon) -> gtk4::Widget {
                     totp_code.as_deref(),
                 ))
                 .map_err(|e| e.to_string());
-            let _ = tx.send_blocking(res);
+            let mapped = res.map(|outcome| match outcome {
+                protondrive_core::LoginOutcome::Success(_) => None,
+                protondrive_core::LoginOutcome::HvRequired { hv_token, methods } => {
+                    Some((hv_token, methods))
+                }
+            });
+            let _ = tx.send_blocking(mapped);
         });
+
+        let daemon_hv = daemon_c.clone();
         glib::spawn_future_local(async move {
             if let Ok(res) = rx.recv().await {
                 btn_done.set_sensitive(true);
                 match res {
-                    Ok(()) => status_done.set_text("Signed in. Sync starting…"),
+                    Ok(None) => status_done.set_text("Signed in. Sync starting…"),
+                    Ok(Some((hv_token, methods))) => {
+                        // HV required: start local captcha server and open browser.
+                        status_done.set_text(
+                            "Proton requires CAPTCHA verification. A browser window has been opened — please complete the challenge there. This window will update automatically.",
+                        );
+                        let methods_clone = methods.clone();
+                        let token_clone = hv_token.clone();
+                        let (tx2, rx2) = async_channel::bounded::<(String, String)>(1);
+                        std::thread::spawn(move || {
+                            if let Some((hv_type, solved_token)) =
+                                run_hv_server(&token_clone, &methods_clone)
+                            {
+                                let _ = tx2.send_blocking((hv_type, solved_token));
+                            }
+                        });
+                        // Wait for the captcha to be solved.
+                        if let Ok((hv_type, solved_token)) = rx2.recv().await {
+                            status_done.set_text("Captcha solved, completing sign-in…");
+                            // Generate a fresh TOTP code since the original may have expired.
+                            let fresh_totp = totp_secret_for_hv.as_deref()
+                                .and_then(|s| protondrive_core::auth::totp::current_code(s).ok())
+                                .or_else(|| {
+                                    // Try keyring
+                                    let kr_email2 = email_for_hv.clone();
+                                    std::thread::spawn(move || {
+                                        let rt = tokio::runtime::Builder::new_current_thread()
+                                            .enable_all()
+                                            .build()
+                                            .ok()?;
+                                        rt.block_on(async {
+                                            let kr = protondrive_core::keyring::Keyring::for_account(kr_email2);
+                                            kr.fetch(protondrive_core::keyring::Slot::TotpSecret)
+                                                .await
+                                                .ok()
+                                                .flatten()
+                                                .and_then(|s| protondrive_core::auth::totp::current_code(&s).ok())
+                                        })
+                                    })
+                                    .join()
+                                    .ok()
+                                    .flatten()
+                                });
+                            let (tx3, rx3) = async_channel::bounded::<std::result::Result<(), String>>(1);
+                            std::thread::spawn(move || {
+                                let rt = tokio::runtime::Builder::new_current_thread()
+                                    .enable_all()
+                                    .build()
+                                    .unwrap();
+                                let res = rt
+                                    .block_on(daemon_hv.login_hv(
+                                        &hv_type,
+                                        &solved_token,
+                                        fresh_totp.as_deref(),
+                                    ))
+                                    .map_err(|e| e.to_string());
+                                let _ = tx3.send_blocking(res);
+                            });
+                            if let Ok(res) = rx3.recv().await {
+                                match res {
+                                    Ok(()) => status_done.set_text("Signed in. Sync starting…"),
+                                    Err(e) => status_done.set_text(&format!("Sign-in failed after CAPTCHA: {e}")),
+                                }
+                            }
+                        } else {
+                            status_done.set_text("CAPTCHA verification was not completed.");
+                        }
+                    }
                     Err(e) => {
                         let lower = e.to_lowercase();
-                        let friendly = if lower.contains("captcha")
-                            || lower.contains("human verification")
-                            || lower.contains("9001")
-                        {
-                            "Sign-in failed: Proton requested CAPTCHA / human verification. \
-                             Open https://account.proton.me in your browser, sign in there \
-                             once (solve the CAPTCHA), then retry here. Your IP will be \
-                             trusted for ~24h."
-                                .to_string()
-                        } else if lower.contains("2064") {
+                        let friendly = if lower.contains("2064") {
                             "Sign-in failed: Proton rejected the request as malformed (Code 2064). \
-                             This usually means the app version header is unrecognised — please \
-                             update ProtonDrive-Linux."
+                             Please update ProtonDrive-Linux."
                                 .to_string()
                         } else if lower.contains("totp") || lower.contains("2fa") {
                             format!(
-                                "Sign-in failed: 2FA code rejected. Double-check the TOTP \
-                                     secret key (Base32, no spaces). Original error: {e}"
+                                "Sign-in failed: 2FA code rejected. Check the TOTP secret key (Base32, no spaces). Error: {e}"
                             )
                         } else {
                             format!("Sign-in failed: {e}")
@@ -226,6 +293,105 @@ fn page_credentials(daemon: Daemon) -> gtk4::Widget {
     });
 
     page_wrap(vec![group.upcast(), status.upcast(), signin.upcast()])
+}
+
+/// Starts a minimal local HTTP server that serves a captcha iframe page,
+/// opens the browser, and waits for the Human Verification token.
+/// Returns `Some((hv_type, token))` on success.
+fn run_hv_server(hv_token: &str, methods: &[String]) -> Option<(String, String)> {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").ok()?;
+    let port = listener.local_addr().ok()?.port();
+    let methods_str = if methods.is_empty() {
+        "captcha".to_string()
+    } else {
+        methods.join(",")
+    };
+
+    // Build the HTML page that embeds verify.proton.me and captures the result.
+    let verify_url = format!(
+        "https://verify.proton.me/?methods={}&token={}&theme=dark",
+        methods_str, hv_token
+    );
+    let html = format!(
+        r#"<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Proton Human Verification</title>
+<style>
+  body {{ margin:0; padding:0; background:#1a1a2e; display:flex; flex-direction:column; height:100vh; }}
+  h2 {{ color:#fff; font-family:sans-serif; padding:12px; margin:0; font-size:14px; background:#0e0e1a; }}
+  iframe {{ flex:1; border:none; }}
+</style>
+</head>
+<body>
+<h2>Complete the verification below, then return to ProtonDrive-Linux.</h2>
+<iframe id="hv" src="{verify_url}" allow="cross-origin-isolated"></iframe>
+<script>
+window.addEventListener("message", function(e) {{
+  var d = e.data;
+  if (!d) return;
+  // Proton's verify page posts several message shapes:
+  //   {{ type:"pm_captcha", token:"..." }}
+  //   {{ type:"human-verification", token:"...", tokenType:"captcha" }}
+  var token = d.token || d.captcha_token || "";
+  var tokenType = d.tokenType || d.type || "captcha";
+  if (tokenType === "pm_captcha") tokenType = "captcha";
+  if (token) {{
+    fetch("/submit", {{
+      method: "POST",
+      headers: {{"Content-Type": "application/json"}},
+      body: JSON.stringify({{token: token, tokenType: tokenType}})
+    }}).then(function() {{
+      document.body.innerHTML = "<h2 style='color:#0f0;font-family:sans-serif;padding:24px;'>Verification complete! You can close this tab.</h2>";
+    }});
+  }}
+}});
+</script>
+</body>
+</html>"#,
+        verify_url = verify_url
+    );
+
+    // Open the browser to the local page.
+    let url = format!("http://127.0.0.1:{port}/");
+    let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
+
+    // Serve HTTP — handle GET / (HTML page) and POST /submit (token receiver).
+    let mut result: Option<(String, String)> = None;
+    for stream in listener.incoming() {
+        if let Ok(mut stream) = stream {
+            let mut buf = vec![0u8; 8192];
+            let n = stream.read(&mut buf).unwrap_or(0);
+            let req = String::from_utf8_lossy(&buf[..n]);
+            let first_line = req.lines().next().unwrap_or("");
+
+            if first_line.starts_with("POST /submit") {
+                // Extract JSON body after the blank line.
+                let body = req.split("\r\n\r\n").nth(1).unwrap_or("").trim();
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(body) {
+                    let token = v["token"].as_str().unwrap_or("").to_string();
+                    let token_type = v["tokenType"].as_str().unwrap_or("captcha").to_string();
+                    result = Some((token_type, token));
+                }
+                let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok");
+                break;
+            } else if first_line.starts_with("GET /") {
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
+                    html.len(),
+                    html
+                );
+                let _ = stream.write_all(resp.as_bytes());
+            } else {
+                let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+            }
+        }
+    }
+    result
 }
 
 fn page_totp(daemon: Daemon) -> gtk4::Widget {

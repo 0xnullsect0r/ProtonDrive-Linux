@@ -21,6 +21,7 @@ mod ffi {
         pub fn pd_version() -> *mut c_char;
         pub fn pd_init(args: *const c_char) -> *mut c_char;
         pub fn pd_login(session: c_longlong, args: *const c_char) -> *mut c_char;
+        pub fn pd_login_hv(session: c_longlong, args: *const c_char) -> *mut c_char;
         pub fn pd_resume(session: c_longlong, args: *const c_char) -> *mut c_char;
         pub fn pd_logout(session: c_longlong) -> *mut c_char;
         pub fn pd_root_link_id(session: c_longlong) -> *mut c_char;
@@ -103,6 +104,20 @@ pub struct Credential {
     pub access_token: String,
     pub refresh_token: String,
     pub salted_key_pass: String,
+}
+
+/// The outcome of a first-time login attempt.
+#[derive(Debug, Clone)]
+pub enum LoginOutcome {
+    /// Authentication succeeded; credentials are returned.
+    Success(Credential),
+    /// Proton requires the user to complete a Human Verification challenge.
+    /// Open `https://verify.proton.me/?methods=<methods>&token=<hv_token>&theme=dark`
+    /// in a browser, capture the resulting token, then call `Bridge::login_hv`.
+    HvRequired {
+        hv_token: String,
+        methods: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -240,13 +255,79 @@ impl Bridge {
     }
 
     /// Log in with username/password (+ optional TOTP and mailbox password).
-    pub async fn login(&self, args: LoginArgs) -> Result<Credential, BridgeError> {
+    /// Returns `LoginOutcome::HvRequired` when Proton demands a CAPTCHA.
+    pub async fn login(&self, args: LoginArgs) -> Result<LoginOutcome, BridgeError> {
+        let json = serde_json::to_string(&args)?;
+        let session = self.session;
+        tokio::task::spawn_blocking(move || -> Result<LoginOutcome, BridgeError> {
+            let c = cstr(&json)?;
+            unsafe {
+                let raw = ffi::pd_login(session, c.as_ptr());
+                let json = take_cstring(raw)?;
+                // Check for {"ok":{"status":"hv_required",...}} before trying
+                // to parse as a Credential.
+                #[derive(Deserialize)]
+                struct MaybeHv {
+                    #[serde(default)]
+                    ok: Option<serde_json::Value>,
+                    #[serde(default)]
+                    err: Option<String>,
+                }
+                let probe: MaybeHv = serde_json::from_str(&json)?;
+                if let Some(e) = probe.err {
+                    if !e.is_empty() {
+                        return Err(BridgeError::Bridge(e));
+                    }
+                }
+                if let Some(v) = probe.ok {
+                    if v.get("status").and_then(|s| s.as_str()) == Some("hv_required") {
+                        let hv_token = v["hv_token"].as_str().unwrap_or_default().to_string();
+                        let methods = v["methods"]
+                            .as_array()
+                            .map(|a| {
+                                a.iter()
+                                    .filter_map(|x| x.as_str().map(String::from))
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        return Ok(LoginOutcome::HvRequired { hv_token, methods });
+                    }
+                    let cred: Credential = serde_json::from_value(v)?;
+                    return Ok(LoginOutcome::Success(cred));
+                }
+                Err(BridgeError::Bridge("empty bridge response".into()))
+            }
+        })
+        .await?
+    }
+
+    /// Complete a login that was blocked by Human Verification.
+    /// `hv_type` is typically `"captcha"`. `hv_token` is the solution token
+    /// returned by `https://verify.proton.me/`. `fresh_two_fa` is a freshly
+    /// generated TOTP code (the original one may have expired).
+    pub async fn login_hv(
+        &self,
+        hv_type: &str,
+        hv_token: &str,
+        fresh_two_fa: Option<&str>,
+    ) -> Result<Credential, BridgeError> {
+        #[derive(Serialize)]
+        struct HvArgs<'a> {
+            hv_type: &'a str,
+            hv_token: &'a str,
+            two_fa: &'a str,
+        }
+        let args = HvArgs {
+            hv_type,
+            hv_token,
+            two_fa: fresh_two_fa.unwrap_or_default(),
+        };
         let json = serde_json::to_string(&args)?;
         let session = self.session;
         tokio::task::spawn_blocking(move || -> Result<Credential, BridgeError> {
             let c = cstr(&json)?;
             unsafe {
-                let raw = ffi::pd_login(session, c.as_ptr());
+                let raw = ffi::pd_login_hv(session, c.as_ptr());
                 let json = take_cstring(raw)?;
                 parse(&json)
             }

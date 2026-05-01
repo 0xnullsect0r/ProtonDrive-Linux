@@ -16,3 +16,4 @@ pub mod types;
 mod daemon;
 pub use daemon::Daemon;
 pub use error::{Error, Result};
+pub use protondrive_bridge::LoginOutcome;
