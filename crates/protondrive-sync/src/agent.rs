@@ -148,7 +148,7 @@ impl SyncAgent {
         };
 
         let mut local = LocalWatcher::start(&self.root)?;
-        let mut remote = RemoteWatcher::start(self.bridge.clone(), self.state.clone());
+        let mut remote = RemoteWatcher::start(self.bridge.clone(), self.state.clone(), root_link_id.clone());
 
         let propagator = Propagator {
             bridge: self.bridge.clone(),
