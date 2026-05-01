@@ -487,7 +487,7 @@ mod tests {
     #[tokio::test]
     async fn init_creates_session() {
         let b = Bridge::init(InitArgs {
-            app_version: "external-drive-protondrive-linux@0.1.0-dev".into(),
+            app_version: "web-drive@5.0.30.0".into(),
             user_agent: "ProtonDrive-Linux/0.1.0 test".into(),
             ..Default::default()
         })

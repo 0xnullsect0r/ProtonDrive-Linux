@@ -13,11 +13,12 @@ use crate::config::{Config, Paths};
 use crate::keyring::{Keyring, Slot};
 use crate::Result;
 
-const APP_VERSION: &str = concat!(
-    "external-drive-protondrive-linux@",
-    env!("CARGO_PKG_VERSION"),
-    "-stable"
-);
+// IMPORTANT: Proton's API gates the `x-pm-appversion` header to a known set
+// of client identifiers and returns HTTP 400 / Code 2064 ("Invalid Section
+// Name") for anything it doesn't recognise. We impersonate the official
+// web-drive client (this is also what rclone and Proton-API-Bridge use by
+// default for third-party clients).
+const APP_VERSION: &str = "web-drive@5.0.30.0";
 
 #[derive(Clone)]
 pub struct Daemon {
