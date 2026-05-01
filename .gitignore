@@ -11,3 +11,11 @@ target/
 
 # MSVC Windows builds of rustc generate these, which store debugging information
 *.pdb
+
+# downloaded release assets / local test installs
+/protondrive-linux/
+/protondrive-linux-*.pkg.tar.zst
+/protondrive-linux-*.deb
+/protondrive-linux-*.rpm
+/protondrive-linux-*.flatpak
+/protondrive-linux-*.AppImage
