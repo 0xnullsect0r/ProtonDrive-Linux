@@ -1,6 +1,6 @@
 module github.com/0xnullsect0r/ProtonDrive-Linux/bridge
 
-go 1.26.2
+go 1.22
 
 require (
 	github.com/henrybear327/Proton-API-Bridge v1.0.0
