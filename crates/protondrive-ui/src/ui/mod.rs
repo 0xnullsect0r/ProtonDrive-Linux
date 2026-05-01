@@ -10,6 +10,7 @@
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
+use std::path::Path;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -20,6 +21,7 @@ use libadwaita as adw;
 use libadwaita::prelude::*;
 use protondrive_core::Daemon;
 use protondrive_sync::{Direction, SyncEvent};
+use gtk4::gdk as gdk4;
 
 use crate::sync::SyncController;
 
@@ -84,6 +86,11 @@ pub fn build_main_window(app: &adw::Application, daemon: Daemon, sync_ctrl: Sync
     } else {
         stack.set_visible_child_name("account");
     }
+
+    // Store SyncState globally so on_login_success can surface errors.
+    SYNC_STATE_GLOBAL.with(|cell| {
+        *cell.borrow_mut() = Some(sync_state.clone());
+    });
 
     // Consume the async-channel receiver and wire it to sync state updates.
     if let Some(rx) = sync_ctrl.take_ui_rx() {
@@ -262,6 +269,7 @@ fn refresh_time_labels(ss: &SyncState, sc: &SyncController) {
 // Widgets on the Account page that need refreshing on the 1-second timer.
 thread_local! {
     static ACCOUNT_WIDGETS: RefCell<Option<AccountWidgets>> = const { RefCell::new(None) };
+    static SYNC_STATE_GLOBAL: RefCell<Option<SyncState>> = const { RefCell::new(None) };
 }
 
 struct AccountWidgets {
@@ -907,7 +915,14 @@ fn on_login_success(
     login_box.set_visible(false);
     if let Err(e) = sync_ctrl.start(daemon) {
         tracing::warn!(error=%e, "sync start failed after login");
-        status.set_text(&format!("Signed in, but sync failed to start: {e}"));
+        // Surface error on the (visible) Syncing page status label.
+        SYNC_STATE_GLOBAL.with(|cell| {
+            if let Some(ss) = cell.borrow().as_ref() {
+                let s = ss.inner.borrow();
+                s.status_label.set_label(&format!("Error: {e}"));
+                s.status_icon.set_icon_name(Some("dialog-error-symbolic"));
+            }
+        });
     }
 }
 
@@ -1014,6 +1029,108 @@ fn page_settings(daemon: Daemon) -> gtk4::Widget {
         });
     }
 
+    // ── Startup & integration ──────────────────────────────────────
+    let startup_group = adw::PreferencesGroup::builder()
+        .title("Startup & Integration")
+        .build();
+
+    let autostart_row = adw::SwitchRow::builder()
+        .title("Launch at login")
+        .subtitle("Start ProtonDrive automatically when you log in")
+        .build();
+    // Check current autostart state.
+    let autostart_desktop_path = dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("~/.config"))
+        .join("autostart")
+        .join("me.proton.drive.Linux.desktop");
+    autostart_row.set_active(autostart_desktop_path.exists());
+    startup_group.add(&autostart_row);
+
+    {
+        let dst = autostart_desktop_path.clone();
+        autostart_row.connect_active_notify(move |row| {
+            if row.is_active() {
+                // Find the installed .desktop file and copy it.
+                let src_paths = [
+                    "/usr/share/applications/me.proton.drive.Linux.desktop",
+                    "/app/share/applications/me.proton.drive.Linux.desktop",
+                ];
+                let parent = dst.parent().unwrap();
+                let _ = std::fs::create_dir_all(parent);
+                for src in &src_paths {
+                    if std::path::Path::new(src).exists() {
+                        let _ = std::fs::copy(src, &dst);
+                        return;
+                    }
+                }
+                // Fallback: write a minimal .desktop entry.
+                if let Ok(exe) = std::env::current_exe() {
+                    let content = format!(
+                        "[Desktop Entry]\nType=Application\nName=ProtonDrive\n\
+                         Exec={}\nIcon=me.proton.drive.Linux\nHidden=false\n\
+                         NoDisplay=false\nX-GNOME-Autostart-enabled=true\n",
+                        exe.display()
+                    );
+                    let _ = std::fs::write(&dst, content);
+                }
+            } else {
+                let _ = std::fs::remove_file(&dst);
+            }
+        });
+    }
+
+    // ── File-manager folder icon ───────────────────────────────────
+    let fm_row = adw::ActionRow::builder()
+        .title("Set folder icon in file manager")
+        .subtitle("Marks ~/ProtonDrive with a cloud icon in Nautilus and Dolphin")
+        .build();
+    let set_icon_btn = gtk4::Button::with_label("Apply");
+    set_icon_btn.add_css_class("flat");
+    set_icon_btn.set_valign(gtk4::Align::Center);
+    fm_row.add_suffix(&set_icon_btn);
+    startup_group.add(&fm_row);
+
+    {
+        let d = daemon.clone();
+        set_icon_btn.connect_clicked(move |_| {
+            let sync_root = d.config.lock().sync_root.clone();
+            std::thread::spawn(move || {
+                apply_folder_icons(&sync_root);
+            });
+        });
+    }
+
+    // ── Diagnostics ────────────────────────────────────────────────
+    let diag_group = adw::PreferencesGroup::builder()
+        .title("Diagnostics")
+        .build();
+    let diag_row = adw::ActionRow::builder()
+        .title("Copy log path")
+        .subtitle("Copy the log directory path to clipboard for support")
+        .build();
+    let copy_log_btn = gtk4::Button::with_label("Copy");
+    copy_log_btn.add_css_class("flat");
+    copy_log_btn.set_valign(gtk4::Align::Center);
+    diag_row.add_suffix(&copy_log_btn);
+    diag_group.add(&diag_row);
+
+    {
+        copy_log_btn.connect_clicked(move |btn| {
+            let log_dir = dirs::state_dir()
+                .unwrap_or_else(|| {
+                    dirs::home_dir()
+                        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+                        .join(".local/state")
+                })
+                .join("protondrive")
+                .join("log");
+            if let Some(display) = btn.display().downcast_ref::<gdk4::Display>() {
+                let clipboard = display.clipboard();
+                clipboard.set_text(&log_dir.to_string_lossy());
+            }
+        });
+    }
+
     // Layout.
     let outer = gtk4::Box::new(Orientation::Vertical, 16);
     outer.set_margin_top(16);
@@ -1023,9 +1140,11 @@ fn page_settings(daemon: Daemon) -> gtk4::Widget {
 
     outer.append(&folder_group);
     outer.append(&apply_btn);
+    outer.append(&diag_group);
     outer.append(&totp_group);
     outer.append(&code_preview);
     outer.append(&save_totp_btn);
+    outer.append(&startup_group);
 
     let clamp = adw::Clamp::builder()
         .maximum_size(700)
@@ -1076,3 +1195,23 @@ fn run_hv_subprocess(hv_token: &str, methods: &[String]) -> Option<(String, Stri
 }
 
 use gtk4::glib;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// File-manager folder icon integration
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Set a cloud-folder icon on the ProtonDrive sync folder so it stands out
+/// in Nautilus (via GIO metadata) and Dolphin (via .directory file).
+pub fn apply_folder_icons(sync_root: &Path) {
+    let _ = std::fs::create_dir_all(sync_root);
+
+    // Nautilus / Files: gio set metadata::custom-icon-name "folder-cloud"
+    let _ = std::process::Command::new("gio")
+        .args(["set", &sync_root.to_string_lossy(), "metadata::custom-icon-name", "folder-cloud"])
+        .status();
+
+    // Dolphin: write a .directory file
+    let dot_dir = sync_root.join(".directory");
+    let content = "[Desktop Entry]\nIcon=folder-cloud\n";
+    let _ = std::fs::write(dot_dir, content);
+}

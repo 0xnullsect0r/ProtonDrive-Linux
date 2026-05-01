@@ -13,11 +13,37 @@ use sync::SyncController;
 const APP_ID: &str = "me.proton.drive.Linux";
 
 fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,protondrive=debug".into()),
+    // ── Structured logging ─────────────────────────────────────────
+    // Write logs to $XDG_STATE_HOME/protondrive/log/ with daily rotation,
+    // keeping them out of systemd journal and making "Copy Diagnostics" easy.
+    let log_dir = dirs::state_dir()
+        .unwrap_or_else(|| {
+            dirs::home_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+                .join(".local/state")
+        })
+        .join("protondrive")
+        .join("log");
+    let _ = std::fs::create_dir_all(&log_dir);
+
+    let file_appender = tracing_appender::rolling::daily(&log_dir, "protondrive.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
+    // Also keep stderr output when RUST_LOG is set.
+    use tracing_subscriber::prelude::*;
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "info,protondrive=debug".into());
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(non_blocking)
+                .with_ansi(false),
         )
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(std::io::stderr),
+        )
+        .with(env_filter)
         .init();
 
     // Tokio runtime for the async daemon, spawned on a dedicated thread.
@@ -26,6 +52,15 @@ fn main() -> Result<()> {
         .build()?;
     let daemon = Daemon::init()?;
     let sync_ctrl = SyncController::new(rt.handle().clone());
+
+    // Apply folder icons for file-manager integration on startup.
+    {
+        let sync_root = daemon.config.lock().sync_root.clone();
+        std::thread::spawn(move || {
+            let _ = std::fs::create_dir_all(&sync_root);
+            ui::apply_folder_icons(&sync_root);
+        });
+    }
 
     {
         let d = daemon.clone();

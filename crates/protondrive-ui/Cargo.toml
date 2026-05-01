@@ -18,9 +18,11 @@ tokio.workspace        = true
 anyhow.workspace       = true
 tracing.workspace      = true
 tracing-subscriber.workspace = true
+tracing-appender       = "0.2"
 serde_json.workspace   = true
 chrono.workspace       = true
 parking_lot.workspace  = true
+dirs                   = "5"
 
 gtk4.workspace         = true
 libadwaita.workspace   = true
