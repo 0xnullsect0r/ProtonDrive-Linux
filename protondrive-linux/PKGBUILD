@@ -1,8 +1,8 @@
 # Maintainer: ProtonDrive-Linux contributors <noreply@example.com>
-# This template is rendered by the release workflow: {VERSION} and {SHA256}
+# This template is rendered by the release workflow: 0.1.5 and 5a2526fae480810a122f350acff720346a6b3ea552b4997899918a273c24b690
 # are substituted before the file is published to the AUR.
 pkgname=protondrive-linux
-pkgver={VERSION}
+pkgver=0.1.5
 pkgrel=1
 pkgdesc="Unofficial native Linux client for Proton Drive (sync engine + GTK4 UI + tray)"
 arch=('x86_64' 'aarch64')
@@ -13,14 +13,9 @@ optdepends=(
   'gnome-shell-extension-appindicator: system-tray icon on GNOME'
   'plasma-workspace: system-tray icon on KDE Plasma'
 )
-makedepends=('go' 'pkgconf' 'git')
-# NOTE: a Rust toolchain (rustc/cargo) is also required at build time, but
-# we deliberately do NOT list it as a makedepend, because the official
-# `rust` package conflicts with `rustup`. Install whichever you prefer:
-#   sudo pacman -S rust    # OR
-#   sudo pacman -S rustup && rustup default stable
+makedepends=('rust>=1.75' 'cargo' 'go' 'pkgconf' 'git')
 source=("$pkgname-$pkgver.tar.gz::$url/releases/download/v$pkgver/protondrive-linux-$pkgver.tar.gz")
-sha256sums=('{SHA256}')
+sha256sums=('5a2526fae480810a122f350acff720346a6b3ea552b4997899918a273c24b690')
 options=('!lto')
 
 build() {
