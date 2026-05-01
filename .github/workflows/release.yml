@@ -145,15 +145,16 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Restore release binaries
         uses: actions/download-artifact@v4
-        with: { name: release-bins-linux-x86_64, path: target/release }
+        with: { name: release-bins-linux-x86_64, path: . }
       - name: Stage binaries
         run: |
-          chmod +x target/release/protondrive*
-          # protondrive-hv is nested under the crate subdirectory in the artifact
-          mkdir -p target/release
-          find target/release -name protondrive-hv -not -path 'target/release/protondrive-hv' \
-            -exec mv {} target/release/protondrive-hv \; 2>/dev/null || true
-          chmod +x target/release/protondrive-hv 2>/dev/null || true
+          # Move protondrive-hv from crate subdir to target/release/
+          if [[ -f "crates/protondrive-hv/target/release/protondrive-hv" ]]; then
+            mv crates/protondrive-hv/target/release/protondrive-hv target/release/protondrive-hv
+          fi
+          chmod +x target/release/protondrive target/release/protondrived \
+                   target/release/protondrive-cli target/release/protondrive-hv \
+                   target/release/libprotonbridge.so 2>/dev/null || true
       - name: Install cargo-deb
         run: cargo install --locked cargo-deb
       - name: Build .deb
@@ -178,6 +179,7 @@ jobs:
           dnf install -y rpm-build rpmdevtools gcc make golang \
             gtk4-devel libadwaita-devel libsecret-devel \
             openssl-devel dbus-devel pkgconf-pkg-config systemd-rpm-macros tar \
+            webkit2gtk4.1-devel \
             curl-minimal ca-certificates
           # Fedora 41's bundled rustc (1.86) is too old for some workspace
           # dependencies (home@0.5.12 needs 1.88+). Install an up-to-date
@@ -261,13 +263,16 @@ jobs:
             file desktop-file-utils patchelf wget ca-certificates
       - name: Restore release binaries
         uses: actions/download-artifact@v4
-        with: { name: release-bins-linux-x86_64, path: target/release }
+        with: { name: release-bins-linux-x86_64, path: . }
       - name: Stage binaries
         run: |
-          chmod +x target/release/protondrive*
-          find target/release -name protondrive-hv -not -path 'target/release/protondrive-hv' \
-            -exec mv {} target/release/protondrive-hv \; 2>/dev/null || true
-          chmod +x target/release/protondrive-hv 2>/dev/null || true
+          # Move protondrive-hv from crate subdir to target/release/
+          if [[ -f "crates/protondrive-hv/target/release/protondrive-hv" ]]; then
+            mv crates/protondrive-hv/target/release/protondrive-hv target/release/protondrive-hv
+          fi
+          chmod +x target/release/protondrive target/release/protondrived \
+                   target/release/protondrive-cli target/release/protondrive-hv \
+                   target/release/libprotonbridge.so 2>/dev/null || true
       - name: Fetch linuxdeploy + GTK plugin
         run: |
           mkdir -p $HOME/.local/bin
