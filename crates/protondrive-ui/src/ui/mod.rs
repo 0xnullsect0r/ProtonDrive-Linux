@@ -19,11 +19,11 @@ pub fn build_main_window(app: &adw::Application, daemon: Daemon) {
     toolbar.add_top_bar(&adw::HeaderBar::new());
 
     let stack = adw::ViewStack::new();
-    stack.add_titled(&page_welcome(), Some("welcome"), "Welcome");
-    stack.add_titled(&page_credentials(daemon.clone()), Some("creds"), "Account");
-    stack.add_titled(&page_totp(daemon.clone()), Some("totp"), "Two-Factor");
-    stack.add_titled(&page_folder(daemon.clone()), Some("folder"), "Sync Folder");
-    stack.add_titled(&page_status(daemon.clone()), Some("status"), "Status");
+    stack.add_titled_with_icon(&page_welcome(), Some("welcome"), "Welcome", "emblem-default-symbolic");
+    stack.add_titled_with_icon(&page_credentials(daemon.clone()), Some("creds"), "Account", "dialog-password-symbolic");
+    stack.add_titled_with_icon(&page_totp(daemon.clone()), Some("totp"), "Two-Factor", "system-lock-screen-symbolic");
+    stack.add_titled_with_icon(&page_folder(daemon.clone()), Some("folder"), "Sync Folder", "folder-symbolic");
+    stack.add_titled_with_icon(&page_status(daemon.clone()), Some("status"), "Status", "emblem-synchronizing-symbolic");
 
     let switcher = adw::ViewSwitcherBar::builder()
         .stack(&stack)
@@ -70,9 +70,13 @@ fn page_credentials(daemon: Daemon) -> gtk4::Widget {
     let mailbox = adw::PasswordEntryRow::builder()
         .title("Mailbox password (only for two-password mode)")
         .build();
+    let totp = adw::PasswordEntryRow::builder()
+        .title("TOTP secret key (Base32, optional — leave blank if no 2FA)")
+        .build();
     group.add(&email);
     group.add(&password);
     group.add(&mailbox);
+    group.add(&totp);
 
     let status = gtk4::Label::new(None);
     status.set_halign(Align::Start);
@@ -86,30 +90,58 @@ fn page_credentials(daemon: Daemon) -> gtk4::Widget {
     let email_c = email.clone();
     let password_c = password.clone();
     let mailbox_c = mailbox.clone();
+    let totp_c = totp.clone();
     let status_c = status.clone();
     signin.connect_clicked(move |btn| {
         let email_text = email_c.text().to_string();
         let pw = password_c.text().to_string();
         let mb = mailbox_c.text().to_string();
         let mb_opt = (!mb.is_empty()).then_some(mb);
+        let totp_secret = totp_c.text().to_string();
+        let totp_secret_opt = (!totp_secret.trim().is_empty()).then(|| totp_secret.clone());
 
-        let kr = protondrive_core::keyring::Keyring::for_account(email_text.clone());
-        let totp_code: Option<String> = std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .ok()?;
-            rt.block_on(async {
-                kr.fetch(protondrive_core::keyring::Slot::TotpSecret)
-                    .await
-                    .ok()
-                    .flatten()
-                    .and_then(|s| protondrive_core::auth::totp::current_code(&s).ok())
+        // 1) If a TOTP secret was typed in this session, generate the live code
+        //    from it directly (no keyring round-trip needed).
+        // 2) Otherwise, fall back to a previously-saved secret in the keyring.
+        let kr_email = email_text.clone();
+        let totp_code: Option<String> = match totp_secret_opt.as_ref() {
+            Some(s) => protondrive_core::auth::totp::current_code(s).ok(),
+            None => std::thread::spawn(move || {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .ok()?;
+                rt.block_on(async {
+                    let kr = protondrive_core::keyring::Keyring::for_account(kr_email);
+                    kr.fetch(protondrive_core::keyring::Slot::TotpSecret)
+                        .await
+                        .ok()
+                        .flatten()
+                        .and_then(|s| protondrive_core::auth::totp::current_code(&s).ok())
+                })
             })
-        })
-        .join()
-        .ok()
-        .flatten();
+            .join()
+            .ok()
+            .flatten(),
+        };
+
+        // Persist the freshly-typed TOTP secret to the keyring so future
+        // sign-ins / token refreshes succeed without re-typing it.
+        if let Some(s) = totp_secret_opt.clone() {
+            let kr_store_email = email_text.clone();
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                rt.block_on(async {
+                    let kr = protondrive_core::keyring::Keyring::for_account(kr_store_email);
+                    let _ = kr
+                        .store(protondrive_core::keyring::Slot::TotpSecret, &s)
+                        .await;
+                });
+            });
+        }
 
         btn.set_sensitive(false);
         status_c.set_text("Signing in…");
