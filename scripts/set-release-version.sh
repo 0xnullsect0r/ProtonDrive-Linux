@@ -20,17 +20,14 @@ cd "$ROOT"
 sed -i -E "0,/^version[[:space:]]*=.*/s//version = \"${V}\"/" Cargo.toml
 
 # Cargo.lock: every [[package]] entry whose name starts with `protondrive-`
-# gets its version line rewritten. Tiny perl state machine so we only
-# touch the line immediately after a matching `name = ...`.
+# gets its version line rewritten. Use awk (always present) so this
+# works inside minimal containers that don't ship perl.
 if [[ -f Cargo.lock ]]; then
-    V="$V" perl -i -pe '
-        BEGIN { $hit = 0 }
-        if (/^name = "protondrive-/) { $hit = 1 }
-        elsif ($hit && /^version = "/) {
-            s/"[^"]+"/"$ENV{V}"/;
-            $hit = 0;
-        }
-    ' Cargo.lock
+    awk -v ver="$V" '
+        /^name = "protondrive-/ { hit = 1; print; next }
+        hit && /^version = "/    { sub(/"[^"]+"/, "\"" ver "\""); hit = 0 }
+        { print }
+    ' Cargo.lock > Cargo.lock.tmp && mv Cargo.lock.tmp Cargo.lock
 fi
 
 echo "Workspace version is now:"
