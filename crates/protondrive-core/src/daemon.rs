@@ -7,6 +7,7 @@
 
 use parking_lot::Mutex;
 use protondrive_bridge::{Bridge, InitArgs, LoginArgs, LoginOutcome};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use crate::config::{Config, Paths};
@@ -25,6 +26,8 @@ pub struct Daemon {
     pub config: Arc<Mutex<Config>>,
     pub paths: Arc<Paths>,
     pub bridge: Arc<Mutex<Option<Bridge>>>,
+    /// True once a valid Proton session has been established this run.
+    pub authenticated: Arc<AtomicBool>,
 }
 
 impl Daemon {
@@ -36,7 +39,18 @@ impl Daemon {
             config: Arc::new(Mutex::new(config)),
             paths: Arc::new(paths),
             bridge: Arc::new(Mutex::new(None)),
+            authenticated: Arc::new(AtomicBool::new(false)),
         })
+    }
+
+    /// Returns `true` if the user is currently authenticated.
+    pub fn is_logged_in(&self) -> bool {
+        self.authenticated.load(Ordering::Relaxed)
+    }
+
+    /// Returns the currently configured email, if any.
+    pub fn email(&self) -> Option<String> {
+        self.config.lock().email.clone()
     }
 
     pub fn save_config(&self) -> Result<()> {
@@ -95,6 +109,7 @@ impl Daemon {
             .await
             .map_err(|e| crate::Error::Auth(e.to_string()))?;
         self.persist_credential(&cred).await?;
+        self.authenticated.store(true, Ordering::Relaxed);
         Ok(true)
     }
 
@@ -122,6 +137,7 @@ impl Daemon {
             .map_err(|e| crate::Error::Auth(e.to_string()))?;
         if let LoginOutcome::Success(ref cred) = outcome {
             self.persist_credential(cred).await?;
+            self.authenticated.store(true, Ordering::Relaxed);
         }
         Ok(outcome)
     }
@@ -145,6 +161,28 @@ impl Daemon {
             .await
             .map_err(|e| crate::Error::Auth(e.to_string()))?;
         self.persist_credential(&cred).await?;
+        self.authenticated.store(true, Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// Sign out: stops sync, revokes the Proton session, and clears all
+    /// stored credentials from the keyring.
+    pub async fn logout(&self) -> Result<()> {
+        self.authenticated.store(false, Ordering::Relaxed);
+        // Clear bridge (and revoke server-side session).
+        if let Some(b) = self.bridge.lock().take() {
+            let _ = b.logout().await;
+        }
+        // Wipe all keyring slots.
+        if let Some(email) = self.config.lock().email.clone() {
+            let kr = Keyring::for_account(email);
+            let _ = tokio::join!(
+                kr.delete(Slot::Uid),
+                kr.delete(Slot::AccessToken),
+                kr.delete(Slot::RefreshToken),
+                kr.delete(Slot::SaltedKeyPass),
+            );
+        }
         Ok(())
     }
 

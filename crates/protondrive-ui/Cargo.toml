@@ -13,11 +13,14 @@ path = "src/main.rs"
 
 [dependencies]
 protondrive-core = { path = "../protondrive-core" }
+protondrive-sync = { path = "../protondrive-sync" }
 tokio.workspace        = true
 anyhow.workspace       = true
 tracing.workspace      = true
 tracing-subscriber.workspace = true
 serde_json.workspace   = true
+chrono.workspace       = true
+parking_lot.workspace  = true
 
 gtk4.workspace         = true
 libadwaita.workspace   = true

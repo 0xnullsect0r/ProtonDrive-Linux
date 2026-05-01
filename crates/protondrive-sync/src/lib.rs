@@ -14,4 +14,4 @@ pub mod reconciliation;
 pub mod remote;
 pub mod state;
 
-pub use agent::{SyncAgent, SyncEvent};
+pub use agent::{Direction, SyncAgent, SyncEvent, SyncEventTx};

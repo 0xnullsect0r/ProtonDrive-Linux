@@ -1,8 +1,10 @@
 //! Propagation — apply resolved [`Operation`]s by talking to the
 //! Proton bridge and the local filesystem.
 
+use crate::agent::{Direction, SyncEvent, SyncEventTx};
 use crate::reconciliation::Operation;
 use crate::state::{Mapping, State};
+use chrono::Utc;
 use protondrive_bridge::Bridge;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -13,6 +15,8 @@ pub struct Propagator {
     pub root: PathBuf,
     pub state: Arc<parking_lot::Mutex<State>>,
     pub root_link_id: String,
+    /// Optional channel for emitting sync activity events to the UI.
+    pub events_tx: Option<SyncEventTx>,
 }
 
 impl Propagator {
@@ -21,6 +25,16 @@ impl Propagator {
             if let Err(e) = self.apply_one(op).await {
                 tracing::warn!(error = %e, "propagation step failed");
             }
+        }
+    }
+
+    fn emit_synced(&self, rel: &str, direction: Direction) {
+        if let Some(tx) = &self.events_tx {
+            let _ = tx.send(SyncEvent::Synced {
+                rel: rel.to_string(),
+                direction,
+                at: Utc::now(),
+            });
         }
     }
 
@@ -34,12 +48,14 @@ impl Propagator {
                 let name = leaf(&rel).to_string();
                 let id = retry(|| self.bridge.create_folder(&parent, &name)).await?;
                 self.record_mapping(&rel, &id, &parent, true, 0, 0)?;
+                self.emit_synced(&rel, Direction::Up);
             }
             Operation::CreateLocalDir { rel, link_id } => {
                 let abs = self.root.join(&rel);
                 std::fs::create_dir_all(&abs)?;
                 let parent = self.parent_link_for(&rel).await?;
                 self.record_mapping(&rel, &link_id, &parent, true, 0, 0)?;
+                self.emit_synced(&rel, Direction::Down);
             }
             Operation::UploadNew {
                 rel,
@@ -64,6 +80,7 @@ impl Propagator {
                     .map(|m| m.len() as i64)
                     .unwrap_or(0);
                 self.record_mapping(&rel, &result.link_id, &parent, false, size, now())?;
+                self.emit_synced(&rel, Direction::Up);
             }
             Operation::UploadUpdate { mapping, path } => {
                 // For now treat as UploadNew (creates new revision via
@@ -92,6 +109,7 @@ impl Propagator {
                     size,
                     now(),
                 )?;
+                self.emit_synced(&mapping.rel_path, Direction::Up);
             }
             Operation::DownloadNew { rel, link_id, .. } => {
                 let abs = self.root.join(&rel);
@@ -110,6 +128,7 @@ impl Propagator {
                 .await?;
                 let parent = self.parent_link_for(&rel).await?;
                 self.record_mapping(&rel, &link_id, &parent, false, size, now())?;
+                self.emit_synced(&rel, Direction::Down);
             }
             Operation::DownloadUpdate { mapping } => {
                 let abs = self.root.join(&mapping.rel_path);
@@ -131,6 +150,7 @@ impl Propagator {
                     size,
                     now(),
                 )?;
+                self.emit_synced(&mapping.rel_path, Direction::Down);
             }
             Operation::DeleteRemote { mapping } => {
                 if !mapping.link_id.is_empty() {
