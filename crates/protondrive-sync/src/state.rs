@@ -40,13 +40,14 @@ impl State {
             let _ = std::fs::create_dir_all(p);
         }
         let conn = Connection::open(path)?;
-        conn.execute_batch(SCHEMA)?;
+        conn.execute_batch("PRAGMA journal_mode=WAL;")?;
+        run_migrations(&conn)?;
         Ok(Self { conn })
     }
 
     pub fn open_in_memory() -> Result<Self, StateError> {
         let conn = Connection::open_in_memory()?;
-        conn.execute_batch(SCHEMA)?;
+        run_migrations(&conn)?;
         Ok(Self { conn })
     }
 
@@ -168,10 +169,29 @@ fn row_to_mapping(row: &rusqlite::Row<'_>) -> Result<Mapping, rusqlite::Error> {
     })
 }
 
-const SCHEMA: &str = r#"
-PRAGMA journal_mode=WAL;
-PRAGMA user_version=1;
+/// Run all outstanding schema migrations.
+///
+/// Each entry in `MIGRATIONS` corresponds to a schema version (1-based).
+/// `PRAGMA user_version` tracks the last applied version.  On a fresh DB
+/// the version is 0, so every migration runs in order.
+fn run_migrations(conn: &Connection) -> Result<(), StateError> {
+    let current: i32 = conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap_or(0);
+    for (i, sql) in MIGRATIONS.iter().enumerate() {
+        let target = (i + 1) as i32;
+        if current < target {
+            conn.execute_batch(sql)?;
+            conn.execute_batch(&format!("PRAGMA user_version={target};"))?;
+        }
+    }
+    Ok(())
+}
 
+/// Each entry brings the schema from version (index) to version (index+1).
+const MIGRATIONS: &[&str] = &[
+    // v0 → v1: initial schema
+    r#"
 CREATE TABLE IF NOT EXISTS mappings (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     rel_path        TEXT    NOT NULL UNIQUE,
@@ -185,15 +205,14 @@ CREATE TABLE IF NOT EXISTS mappings (
     remote_mtime    INTEGER NOT NULL DEFAULT 0,
     remote_hash     TEXT
 );
-
 CREATE INDEX IF NOT EXISTS idx_mappings_link ON mappings(link_id);
 CREATE INDEX IF NOT EXISTS idx_mappings_parent ON mappings(parent_link_id);
-
 CREATE TABLE IF NOT EXISTS events_cursor (
     key   TEXT PRIMARY KEY,
     value INTEGER NOT NULL
 );
-"#;
+"#,
+];
 
 pub fn default_state_path() -> PathBuf {
     directories::ProjectDirs::from("me", "Proton", "ProtonDrive-Linux")
@@ -232,5 +251,27 @@ mod tests {
         assert_eq!(s.cursor().unwrap(), 0);
         s.set_cursor(42).unwrap();
         assert_eq!(s.cursor().unwrap(), 42);
+    }
+
+    #[test]
+    fn migration_sets_user_version() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+        let v: i32 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(v, MIGRATIONS.len() as i32);
+    }
+
+    #[test]
+    fn migration_is_idempotent() {
+        // Running migrations twice should not panic or corrupt data.
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+        run_migrations(&conn).unwrap();
+        let v: i32 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(v, MIGRATIONS.len() as i32);
     }
 }

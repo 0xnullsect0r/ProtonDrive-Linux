@@ -1,12 +1,28 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
   <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#7048e8"/>
-      <stop offset="1" stop-color="#5b32d4"/>
+    <linearGradient id="folderGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5da4f5"/>
+      <stop offset="1" stop-color="#2176e8"/>
+    </linearGradient>
+    <linearGradient id="cloudGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.97"/>
+      <stop offset="1" stop-color="#deeeff"/>
     </linearGradient>
   </defs>
-  <rect x="8" y="8" width="112" height="112" rx="22" fill="url(#g)"/>
-  <path d="M40 44 h32 a16 16 0 0 1 0 32 h-12 v12 h-20 z" fill="#fff"/>
-  <circle cx="60" cy="60" r="6" fill="#5b32d4"/>
+
+  <!-- Folder body -->
+  <rect x="8" y="40" width="112" height="76" rx="10" fill="url(#folderGrad)"/>
+  <!-- Folder tab -->
+  <path d="M8 40 Q8 28 20 28 L52 28 Q60 28 64 36 L8 36 Z" fill="#3a8fef"/>
+
+  <!-- Cloud shape centred in the folder face -->
+  <!-- Main ellipse -->
+  <ellipse cx="64" cy="72" rx="28" ry="16" fill="url(#cloudGrad)"/>
+  <!-- Left bump -->
+  <circle cx="46" cy="68" r="12" fill="url(#cloudGrad)"/>
+  <!-- Right bump -->
+  <circle cx="78" cy="66" r="14" fill="url(#cloudGrad)"/>
+  <!-- Top bump (peak) -->
+  <circle cx="63" cy="58" r="13" fill="url(#cloudGrad)"/>
 </svg>

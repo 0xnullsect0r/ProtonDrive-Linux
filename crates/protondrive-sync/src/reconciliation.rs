@@ -56,7 +56,10 @@ pub struct Observations {
 /// Naive single-pass reconciliation: per (rel_path, link_id) bucket,
 /// emit upload / download / delete operations. The Conflict variant is
 /// produced when both sides changed since the last sync.
-pub fn reconcile(obs: Observations) -> Vec<Operation> {
+///
+/// `excluded` contains top-level folder names to skip on the remote side
+/// (selective sync).
+pub fn reconcile(obs: Observations, excluded: &[String]) -> Vec<Operation> {
     let mut ops: Vec<Operation> = Vec::new();
     for c in obs.local {
         match c {
@@ -97,6 +100,10 @@ pub fn reconcile(obs: Observations) -> Vec<Operation> {
     }
     for c in obs.remote {
         if let RemoteChange::Upsert { entry } = c {
+            // Selective sync: skip entries whose top-level component is excluded.
+            if is_excluded(&entry.name, excluded) {
+                continue;
+            }
             if entry.is_folder {
                 ops.push(Operation::CreateLocalDir {
                     rel: entry.name,
@@ -114,6 +121,15 @@ pub fn reconcile(obs: Observations) -> Vec<Operation> {
     ops
 }
 
+/// Returns true if the entry's top-level path component is in `excluded`.
+fn is_excluded(rel: &str, excluded: &[String]) -> bool {
+    if excluded.is_empty() {
+        return false;
+    }
+    let top = rel.split('/').next().unwrap_or(rel);
+    excluded.iter().any(|e| e.trim().eq_ignore_ascii_case(top))
+}
+
 fn shell_mapping(rel: &str) -> Mapping {
     Mapping {
         id: 0,
@@ -127,5 +143,65 @@ fn shell_mapping(rel: &str) -> Mapping {
         remote_size: 0,
         remote_mtime: 0,
         remote_hash: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::remote::RemoteChange;
+    use protondrive_bridge::EventEntry;
+
+    fn remote_upsert(name: &str, is_folder: bool) -> RemoteChange {
+        RemoteChange::Upsert {
+            entry: EventEntry {
+                link_id: format!("L-{name}"),
+                parent_id: "root".to_string(),
+                name: name.to_string(),
+                is_folder,
+                modify_time: 1,
+                size: 0,
+            },
+        }
+    }
+
+    #[test]
+    fn no_exclusions_passes_all() {
+        let obs = Observations {
+            local: vec![],
+            remote: vec![
+                remote_upsert("Documents/file.txt", false),
+                remote_upsert("Photos/img.jpg", false),
+            ],
+        };
+        let ops = reconcile(obs, &[]);
+        assert_eq!(ops.len(), 2);
+    }
+
+    #[test]
+    fn excluded_top_level_filtered() {
+        let obs = Observations {
+            local: vec![],
+            remote: vec![
+                remote_upsert("Documents/file.txt", false),
+                remote_upsert("Photos/img.jpg", false),
+                remote_upsert("Photos/sub/deep.jpg", false),
+            ],
+        };
+        let excluded = vec!["Photos".to_string()];
+        let ops = reconcile(obs, &excluded);
+        // Only Documents/file.txt should pass through.
+        assert_eq!(ops.len(), 1);
+    }
+
+    #[test]
+    fn exclusion_is_case_insensitive() {
+        let obs = Observations {
+            local: vec![],
+            remote: vec![remote_upsert("photos/img.jpg", false)],
+        };
+        let excluded = vec!["Photos".to_string()];
+        let ops = reconcile(obs, &excluded);
+        assert!(ops.is_empty());
     }
 }

@@ -2752,7 +2752,7 @@ dependencies = [
 
 [[package]]
 name = "protondrive-bridge"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "libc",
  "once_cell",
@@ -2766,7 +2766,7 @@ dependencies = [
 
 [[package]]
 name = "protondrive-cli"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "anyhow",
  "protondrive-core",
@@ -2777,7 +2777,7 @@ dependencies = [
 
 [[package]]
 name = "protondrive-core"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2815,7 +2815,7 @@ dependencies = [
 
 [[package]]
 name = "protondrive-daemon"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "anyhow",
  "directories",
@@ -2832,7 +2832,7 @@ dependencies = [
 
 [[package]]
 name = "protondrive-sync"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2856,7 +2856,7 @@ dependencies = [
 
 [[package]]
 name = "protondrive-ui"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "anyhow",
  "async-channel",

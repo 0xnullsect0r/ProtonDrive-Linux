@@ -67,13 +67,15 @@ impl SyncController {
             .ok_or_else(|| anyhow::anyhow!("not authenticated"))?;
 
         let root = daemon.config.lock().sync_root.clone();
+        let excluded_paths = daemon.config.lock().excluded_paths.clone();
         let _ = std::fs::create_dir_all(&root);
 
         let state_path = default_state_path();
         let state = State::open(&state_path)?;
 
         let (resync_tx, resync_rx) = mpsc::unbounded_channel();
-        let agent = SyncAgent::new_with_resync(bridge, state, root, resync_rx);
+        let mut agent = SyncAgent::new_with_resync(bridge, state, root, resync_rx);
+        agent.excluded_paths = excluded_paths;
         let broadcast_tx = agent.events_tx.clone();
 
         // Bridge broadcast → async_channel so glib can receive events.

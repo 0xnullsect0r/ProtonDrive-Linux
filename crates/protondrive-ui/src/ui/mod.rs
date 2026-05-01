@@ -1131,6 +1131,43 @@ fn page_settings(daemon: Daemon) -> gtk4::Widget {
         });
     }
 
+    // ── Selective sync ─────────────────────────────────────────────
+    let selective_group = adw::PreferencesGroup::builder()
+        .title("Selective Sync")
+        .description(
+            "Enter top-level folder names to exclude from sync, one per line. \
+             Leave empty to sync everything.",
+        )
+        .build();
+
+    let current_excluded = daemon.config.lock().excluded_paths.join("\n");
+    let selective_row = adw::EntryRow::builder()
+        .title("Excluded folders (comma-separated)")
+        .build();
+    selective_row.set_text(&daemon.config.lock().excluded_paths.join(", "));
+    selective_group.add(&selective_row);
+
+    let save_selective_btn = gtk4::Button::with_label("Save");
+    save_selective_btn.add_css_class("suggested-action");
+    save_selective_btn.set_halign(Align::End);
+
+    {
+        let d = daemon.clone();
+        let sr = selective_row.clone();
+        save_selective_btn.connect_clicked(move |_| {
+            let text = sr.text().to_string();
+            let excluded: Vec<String> = text
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            d.config.lock().excluded_paths = excluded;
+            let _ = d.save_config();
+        });
+    }
+    // Suppress unused warning from the pre-computed variable.
+    let _ = current_excluded;
+
     // Layout.
     let outer = gtk4::Box::new(Orientation::Vertical, 16);
     outer.set_margin_top(16);
@@ -1140,6 +1177,8 @@ fn page_settings(daemon: Daemon) -> gtk4::Widget {
 
     outer.append(&folder_group);
     outer.append(&apply_btn);
+    outer.append(&selective_group);
+    outer.append(&save_selective_btn);
     outer.append(&diag_group);
     outer.append(&totp_group);
     outer.append(&code_preview);

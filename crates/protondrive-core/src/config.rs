@@ -25,6 +25,9 @@ pub struct Config {
     pub poll_interval_secs: u64,
     /// Email for the Proton account (the password & TOTP secret live in the keyring).
     pub email: Option<String>,
+    /// Top-level remote folder names to skip during sync (selective sync).
+    #[serde(default)]
+    pub excluded_paths: Vec<String>,
 }
 
 impl Default for Config {
@@ -37,6 +40,7 @@ impl Default for Config {
             cache_max_bytes: 5 * 1024 * 1024 * 1024, // 5 GiB
             poll_interval_secs: 30,
             email: None,
+            excluded_paths: Vec::new(),
         }
     }
 }

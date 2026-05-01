@@ -44,6 +44,8 @@ pub struct SyncAgent {
     pub state: Arc<parking_lot::Mutex<State>>,
     pub root: PathBuf,
     pub events_tx: SyncEventTx,
+    /// Top-level folder names to skip on the remote side (selective sync).
+    pub excluded_paths: Vec<String>,
     /// Optional channel to receive manual "resync now" signals.
     resync_rx: Option<mpsc::UnboundedReceiver<()>>,
 }
@@ -56,6 +58,7 @@ impl SyncAgent {
             state: Arc::new(parking_lot::Mutex::new(state)),
             root,
             events_tx: tx,
+            excluded_paths: Vec::new(),
             resync_rx: None,
         }
     }
@@ -73,6 +76,7 @@ impl SyncAgent {
             state: Arc::new(parking_lot::Mutex::new(state)),
             root,
             events_tx: tx,
+            excluded_paths: Vec::new(),
             resync_rx: Some(resync_rx),
         }
     }
@@ -126,7 +130,7 @@ impl SyncAgent {
                     // Manual resync: process immediately whatever we have (possibly empty).
                     let take = std::mem::take(&mut buf);
                     let _ = self.events_tx.send(SyncEvent::Busy { queue: take.local.len() + take.remote.len() + 1 });
-                    let ops = reconcile(take);
+                    let ops = reconcile(take, &self.excluded_paths);
                     let resolved = resolve(ops);
                     propagator.apply(resolved).await;
                     consolidate(&self.events_tx);
@@ -140,7 +144,7 @@ impl SyncAgent {
                         let _ = self.events_tx.send(SyncEvent::Busy {
                             queue: take.local.len() + take.remote.len(),
                         });
-                        let ops = reconcile(take);
+                        let ops = reconcile(take, &self.excluded_paths);
                         let resolved = resolve(ops);
                         propagator.apply(resolved).await;
                         consolidate(&self.events_tx);
@@ -154,7 +158,7 @@ impl SyncAgent {
                     let _ = self.events_tx.send(SyncEvent::Busy {
                         queue: take.local.len() + take.remote.len(),
                     });
-                    let ops = reconcile(take);
+                    let ops = reconcile(take, &self.excluded_paths);
                     let resolved = resolve(ops);
                     propagator.apply(resolved).await;
                     consolidate(&self.events_tx);
