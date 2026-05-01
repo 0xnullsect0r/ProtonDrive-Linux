@@ -166,12 +166,13 @@ impl Propagator {
                 self.state.lock().delete_by_rel(&mapping.rel_path)?;
             }
             Operation::DeleteLocal { mapping } => {
-                let abs = self.root.join(&mapping.rel_path);
-                if abs.is_dir() {
-                    let _ = std::fs::remove_dir_all(&abs);
-                } else {
-                    let _ = std::fs::remove_file(&abs);
-                }
+                // With FUSE, files aren't on disk — removing from state DB
+                // causes them to disappear from the virtual filesystem.
+                // Clean up the download cache as well.
+                let cache_dir = directories::BaseDirs::new()
+                    .map(|b| b.cache_dir().join("protondrive").join("files"))
+                    .unwrap_or_else(|| std::path::PathBuf::from("/tmp/protondrive-cache"));
+                let _ = std::fs::remove_file(cache_dir.join(&mapping.link_id));
                 self.state.lock().delete_by_rel(&mapping.rel_path)?;
             }
             Operation::Conflict { .. } => {

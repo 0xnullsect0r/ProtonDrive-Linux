@@ -516,6 +516,15 @@ pub fn mount(
     rt: Handle,
 ) -> std::io::Result<BackgroundSession> {
     let _ = std::fs::create_dir_all(mount_point);
+
+    // If a previous run crashed without unmounting, try to clean up.
+    // `fusermount -u` is a no-op if nothing is mounted there.
+    if let Some(p) = mount_point.to_str() {
+        let _ = std::process::Command::new("fusermount")
+            .args(["-u", "-z", p])
+            .output();
+    }
+
     let vfs = ProtonVfs::new(state, bridge, cache_dir, root_link_id, rt);
     let options = [
         MountOption::FSName("ProtonDrive".to_string()),
