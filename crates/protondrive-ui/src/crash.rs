@@ -30,11 +30,7 @@ pub fn install_hook() {
             .payload()
             .downcast_ref::<&str>()
             .copied()
-            .or_else(|| {
-                info.payload()
-                    .downcast_ref::<String>()
-                    .map(String::as_str)
-            })
+            .or_else(|| info.payload().downcast_ref::<String>().map(String::as_str))
             .unwrap_or("<non-string payload>");
 
         let report = format!(

@@ -9,19 +9,19 @@
 //! * **Settings** — sync folder, cache quota, and TOTP secret.
 
 use std::cell::RefCell;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::rc::Rc;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use gtk4::gdk as gdk4;
 use gtk4::prelude::*;
 use gtk4::{Align, Orientation};
 use libadwaita as adw;
 use libadwaita::prelude::*;
 use protondrive_core::Daemon;
 use protondrive_sync::{Direction, SyncEvent};
-use gtk4::gdk as gdk4;
 
 use crate::sync::SyncController;
 
@@ -96,11 +96,8 @@ pub fn build_main_window(app: &adw::Application, daemon: Daemon, sync_ctrl: Sync
     if let Some(rx) = sync_ctrl.take_ui_rx() {
         let ss = sync_state.clone();
         glib::spawn_future_local(async move {
-            loop {
-                match rx.recv().await {
-                    Ok(ev) => apply_sync_event(ev, &ss),
-                    Err(_) => break,
-                }
+            while let Ok(ev) = rx.recv().await {
+                apply_sync_event(ev, &ss);
             }
         });
     }
@@ -144,6 +141,18 @@ struct SyncStateInner {
     status_icon: gtk4::Image,
     progress: gtk4::ProgressBar,
     last_synced_label: gtk4::Label,
+    /// "In Progress / Queue" section header — hidden when queue is empty.
+    queue_section_label: gtk4::Label,
+    /// List showing files currently queued or in progress, with per-row
+    /// pulsing progress bars. Hidden when the queue is empty.
+    queue_list: gtk4::ListBox,
+    /// Row + progress-bar per rel-path so we can update/remove them.
+    queue_rows: HashMap<String, (gtk4::ListBoxRow, gtk4::ProgressBar)>,
+    /// Shared list of active bars for the single pulse timer.
+    active_bars: Rc<RefCell<Vec<gtk4::ProgressBar>>>,
+    /// Source ID of the running pulse timer (None when queue is empty).
+    pulse_source: Option<glib::SourceId>,
+    /// "Recent Activity" list (completed files).
     file_list: gtk4::ListBox,
     empty_label: gtk4::Label,
 }
@@ -158,11 +167,14 @@ enum Status {
 }
 
 impl SyncState {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         status_label: gtk4::Label,
         status_icon: gtk4::Image,
         progress: gtk4::ProgressBar,
         last_synced_label: gtk4::Label,
+        queue_section_label: gtk4::Label,
+        queue_list: gtk4::ListBox,
         file_list: gtk4::ListBox,
         empty_label: gtk4::Label,
     ) -> Self {
@@ -175,6 +187,11 @@ impl SyncState {
                 status_icon,
                 progress,
                 last_synced_label,
+                queue_section_label,
+                queue_list,
+                queue_rows: HashMap::new(),
+                active_bars: Rc::new(RefCell::new(Vec::new())),
+                pulse_source: None,
                 file_list,
                 empty_label,
             })),
@@ -205,19 +222,51 @@ fn apply_sync_event(ev: SyncEvent, ss: &SyncState) {
             s.status = Status::Idle;
             s.last_idle = Some(at);
             s.status_label.set_label("Up to date");
-            s.status_icon
-                .set_icon_name(Some("emblem-default-symbolic"));
+            s.status_icon.set_icon_name(Some("emblem-default-symbolic"));
             s.progress.set_visible(false);
             s.last_synced_label
                 .set_label(&format!("Last synced: {}", fmt_age(at)));
+            // Clear any leftover queue rows.
+            clear_queue(&mut s);
+        }
+        SyncEvent::FileQueued { rel, direction } => {
+            // Don't add the same path twice.
+            if s.queue_rows.contains_key(&rel) {
+                return;
+            }
+            let (row, bar) = make_queue_row(&rel, &direction);
+            s.queue_list.append(&row);
+            s.queue_rows.insert(rel, (row, bar.clone()));
+            s.active_bars.borrow_mut().push(bar);
+            s.queue_section_label.set_visible(true);
+            s.queue_list.set_visible(true);
+            // Start pulse timer if not already running.
+            if s.pulse_source.is_none() {
+                let bars_ref = Rc::clone(&s.active_bars);
+                let source = glib::timeout_add_local(Duration::from_millis(80), move || {
+                    for b in bars_ref.borrow().iter() {
+                        b.pulse();
+                    }
+                    glib::ControlFlow::Continue
+                });
+                s.pulse_source = Some(source);
+            }
         }
         SyncEvent::Synced { rel, direction, at } => {
-            let mut s = s; // reborrow
+            // Remove from the active queue.
+            if let Some((row, bar)) = s.queue_rows.remove(&rel) {
+                s.queue_list.remove(&row);
+                s.active_bars.borrow_mut().retain(|b| b != &bar);
+            }
+            if s.queue_rows.is_empty() {
+                stop_pulse_timer(&mut s);
+                s.queue_section_label.set_visible(false);
+                s.queue_list.set_visible(false);
+            }
+            // Add to recent activity.
             if s.recent.len() >= 50 {
                 s.recent.pop_back();
-                // Remove last row from list.
-                let last = s.file_list.last_child();
-                if let Some(w) = last {
+                if let Some(w) = s.file_list.last_child() {
                     s.file_list.remove(&w);
                 }
             }
@@ -229,10 +278,26 @@ fn apply_sync_event(ev: SyncEvent, ss: &SyncState) {
         SyncEvent::Error { message } => {
             s.status = Status::Error(message.clone());
             s.status_label.set_label(&format!("Error: {message}"));
-            s.status_icon
-                .set_icon_name(Some("dialog-error-symbolic"));
+            s.status_icon.set_icon_name(Some("dialog-error-symbolic"));
             s.progress.set_visible(false);
         }
+    }
+}
+
+fn clear_queue(s: &mut SyncStateInner) {
+    for (row, _) in s.queue_rows.values() {
+        s.queue_list.remove(row);
+    }
+    s.queue_rows.clear();
+    s.active_bars.borrow_mut().clear();
+    stop_pulse_timer(s);
+    s.queue_section_label.set_visible(false);
+    s.queue_list.set_visible(false);
+}
+
+fn stop_pulse_timer(s: &mut SyncStateInner) {
+    if let Some(src) = s.pulse_source.take() {
+        src.remove();
     }
 }
 
@@ -260,8 +325,7 @@ fn refresh_time_labels(ss: &SyncState, sc: &SyncController) {
     if !sc.is_running() && matches!(s.status, Status::Starting | Status::Busy(_) | Status::Idle) {
         s.status = Status::NotRunning;
         s.status_label.set_label("Not running");
-        s.status_icon
-            .set_icon_name(Some("dialog-warning-symbolic"));
+        s.status_icon.set_icon_name(Some("dialog-warning-symbolic"));
         s.progress.set_visible(false);
     }
 }
@@ -289,8 +353,7 @@ fn refresh_account_badge(_daemon: &Daemon) {
             aw.login_box.set_visible(!logged_in);
             if logged_in {
                 if let Some(email) = aw.daemon.email() {
-                    aw.email_label
-                        .set_label(&format!("Signed in as {email}"));
+                    aw.email_label.set_label(&format!("Signed in as {email}"));
                 }
                 // Update sync status subtitle every tick.
                 let (subtitle, icon) = if aw.sync_ctrl.is_running() {
@@ -299,10 +362,7 @@ fn refresh_account_badge(_daemon: &Daemon) {
                     ("Not running", "dialog-warning-symbolic")
                 };
                 aw.sync_status_row.set_subtitle(subtitle);
-                if let Some(icon_widget) = aw
-                    .sync_status_row
-                    .child()
-                    .and_downcast::<gtk4::Image>()
+                if let Some(icon_widget) = aw.sync_status_row.child().and_downcast::<gtk4::Image>()
                 {
                     icon_widget.set_icon_name(Some(icon));
                 }
@@ -373,6 +433,31 @@ fn page_syncing(daemon: Daemon, sync_ctrl: SyncController) -> (gtk4::Widget, Syn
     progress.set_visible(false);
     progress.add_css_class("osd");
 
+    // ── In Progress (download queue) ───────────────────────────────
+    let queue_section_label = gtk4::Label::new(Some("In Progress"));
+    queue_section_label.add_css_class("heading");
+    queue_section_label.set_halign(Align::Start);
+    queue_section_label.set_margin_top(8);
+    queue_section_label.set_margin_start(16);
+    queue_section_label.set_visible(false);
+
+    let queue_list = gtk4::ListBox::new();
+    queue_list.set_selection_mode(gtk4::SelectionMode::None);
+    queue_list.add_css_class("boxed-list");
+    queue_list.set_margin_start(16);
+    queue_list.set_margin_end(16);
+    queue_list.set_visible(false);
+
+    let queue_scroll = gtk4::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk4::PolicyType::Never)
+        .vscrollbar_policy(gtk4::PolicyType::Automatic)
+        .min_content_height(80)
+        .max_content_height(220)
+        .child(&queue_list)
+        .build();
+    queue_scroll.set_margin_start(0);
+    queue_scroll.set_margin_end(0);
+
     // ── Recent Activity ────────────────────────────────────────────
     let section_label = gtk4::Label::new(Some("Recent Activity"));
     section_label.add_css_class("heading");
@@ -385,8 +470,7 @@ fn page_syncing(daemon: Daemon, sync_ctrl: SyncController) -> (gtk4::Widget, Syn
     empty_label.set_halign(Align::Center);
     empty_label.set_margin_top(24);
     empty_label.set_margin_bottom(24);
-    let empty_visible = !daemon.is_logged_in()
-        || !sync_ctrl.is_running();
+    let empty_visible = !daemon.is_logged_in() || !sync_ctrl.is_running();
     empty_label.set_visible(empty_visible);
 
     let file_list = gtk4::ListBox::new();
@@ -411,6 +495,8 @@ fn page_syncing(daemon: Daemon, sync_ctrl: SyncController) -> (gtk4::Widget, Syn
         status_icon,
         progress.clone(),
         last_synced_label,
+        queue_section_label.clone(),
+        queue_list.clone(),
         file_list.clone(),
         empty_label.clone(),
     );
@@ -425,8 +511,7 @@ fn page_syncing(daemon: Daemon, sync_ctrl: SyncController) -> (gtk4::Widget, Syn
             s.status = Status::Error(e.to_string());
             s.status_label
                 .set_label(&format!("Failed to start sync: {e}"));
-            s.status_icon
-                .set_icon_name(Some("dialog-error-symbolic"));
+            s.status_icon.set_icon_name(Some("dialog-error-symbolic"));
             s.progress.set_visible(false);
         }
     });
@@ -436,6 +521,8 @@ fn page_syncing(daemon: Daemon, sync_ctrl: SyncController) -> (gtk4::Widget, Syn
     vbox.set_vexpand(true);
     vbox.append(&status_row);
     vbox.append(&progress);
+    vbox.append(&queue_section_label);
+    vbox.append(&queue_scroll);
     vbox.append(&section_label);
     vbox.append(&empty_label);
     vbox.append(&scroll);
@@ -449,10 +536,7 @@ fn page_syncing(daemon: Daemon, sync_ctrl: SyncController) -> (gtk4::Widget, Syn
     page.add(&group);
     // We can't easily add arbitrary widgets to adw::PreferencesPage inside a
     // group so we use a Clamp for nice centering.
-    let clamp = adw::Clamp::builder()
-        .maximum_size(700)
-        .child(&vbox)
-        .build();
+    let clamp = adw::Clamp::builder().maximum_size(700).child(&vbox).build();
 
     let scroll_outer = gtk4::ScrolledWindow::builder()
         .hscrollbar_policy(gtk4::PolicyType::Never)
@@ -462,6 +546,56 @@ fn page_syncing(daemon: Daemon, sync_ctrl: SyncController) -> (gtk4::Widget, Syn
         .build();
 
     (scroll_outer.upcast(), sync_state)
+}
+
+fn make_queue_row(rel: &str, direction: &Direction) -> (gtk4::ListBoxRow, gtk4::ProgressBar) {
+    let icon_name = match direction {
+        Direction::Up => "go-up-symbolic",
+        Direction::Down => "go-down-symbolic",
+    };
+    let dir_icon = gtk4::Image::from_icon_name(icon_name);
+    dir_icon.set_margin_end(8);
+
+    let file_icon = gtk4::Image::from_icon_name("text-x-generic-symbolic");
+    file_icon.set_margin_end(8);
+
+    let display_name = rel.rsplit('/').next().unwrap_or(rel);
+    let name_label = gtk4::Label::new(Some(display_name));
+    name_label.set_halign(Align::Start);
+    name_label.set_hexpand(true);
+    name_label.set_ellipsize(gtk4::pango::EllipsizeMode::Middle);
+    name_label.set_max_width_chars(40);
+
+    let path_label = gtk4::Label::new(Some(rel));
+    path_label.add_css_class("caption");
+    path_label.add_css_class("dim-label");
+    path_label.set_halign(Align::Start);
+    path_label.set_ellipsize(gtk4::pango::EllipsizeMode::Start);
+
+    let bar = gtk4::ProgressBar::new();
+    bar.set_margin_top(4);
+    bar.set_pulse_step(0.1);
+
+    let name_vbox = gtk4::Box::new(Orientation::Vertical, 2);
+    name_vbox.append(&name_label);
+    name_vbox.append(&path_label);
+    name_vbox.append(&bar);
+    name_vbox.set_hexpand(true);
+    name_vbox.set_valign(Align::Center);
+
+    let row_box = gtk4::Box::new(Orientation::Horizontal, 4);
+    row_box.set_margin_top(8);
+    row_box.set_margin_bottom(8);
+    row_box.set_margin_start(12);
+    row_box.set_margin_end(12);
+    row_box.append(&file_icon);
+    row_box.append(&name_vbox);
+    row_box.append(&dir_icon);
+
+    let row = gtk4::ListBoxRow::new();
+    row.set_child(Some(&row_box));
+    row.set_activatable(false);
+    (row, bar)
 }
 
 fn make_file_row(rel: &str, direction: &Direction, at: DateTime<Utc>) -> gtk4::ListBoxRow {
@@ -818,9 +952,7 @@ fn wire_signin_button(
                             status_done.set_text("Captcha solved, completing sign-in…");
                             let fresh_totp = totp_secret_for_hv
                                 .as_deref()
-                                .and_then(|s| {
-                                    protondrive_core::auth::totp::current_code(s).ok()
-                                })
+                                .and_then(|s| protondrive_core::auth::totp::current_code(s).ok())
                                 .or_else(|| {
                                     let kr_email2 = email_for_hv.clone();
                                     std::thread::spawn(move || {
@@ -829,7 +961,10 @@ fn wire_signin_button(
                                             .build()
                                             .ok()?;
                                         rt.block_on(async {
-                                            let kr = protondrive_core::keyring::Keyring::for_account(kr_email2);
+                                            let kr =
+                                                protondrive_core::keyring::Keyring::for_account(
+                                                    kr_email2,
+                                                );
                                             kr.fetch(protondrive_core::keyring::Slot::TotpSecret)
                                                 .await
                                                 .ok()
@@ -887,7 +1022,9 @@ fn wire_signin_button(
                              Please update ProtonDrive-Linux."
                                 .to_string()
                         } else if lower.contains("totp") || lower.contains("2fa") {
-                            format!("Sign-in failed: 2FA rejected. Check the TOTP secret. Error: {e}")
+                            format!(
+                                "Sign-in failed: 2FA rejected. Check the TOTP secret. Error: {e}"
+                            )
                         } else {
                             format!("Sign-in failed: {e}")
                         };
@@ -938,19 +1075,11 @@ fn page_settings(daemon: Daemon) -> gtk4::Widget {
         .build();
 
     let folder_row = adw::EntryRow::builder().title("Sync folder").build();
-    folder_row.set_text(
-        daemon
-            .config
-            .lock()
-            .sync_root
-            .to_string_lossy()
-            .as_ref(),
-    );
+    folder_row.set_text(daemon.config.lock().sync_root.to_string_lossy().as_ref());
     let cache_row = adw::SpinRow::with_range(1.0, 1024.0, 1.0);
     cache_row.set_title("Cache size (GiB)");
-    cache_row.set_value(
-        (daemon.config.lock().cache_max_bytes / (1024 * 1024 * 1024)).max(1) as f64,
-    );
+    cache_row
+        .set_value((daemon.config.lock().cache_max_bytes / (1024 * 1024 * 1024)).max(1) as f64);
     folder_group.add(&folder_row);
     folder_group.add(&cache_row);
 
@@ -1246,7 +1375,12 @@ pub fn apply_folder_icons(sync_root: &Path) {
 
     // Nautilus / Files: gio set metadata::custom-icon-name "folder-cloud"
     let _ = std::process::Command::new("gio")
-        .args(["set", &sync_root.to_string_lossy(), "metadata::custom-icon-name", "folder-cloud"])
+        .args([
+            "set",
+            &sync_root.to_string_lossy(),
+            "metadata::custom-icon-name",
+            "folder-cloud",
+        ])
         .status();
 
     // Dolphin: write a .directory file

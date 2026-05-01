@@ -6,7 +6,7 @@ use crate::conflict::resolve;
 use crate::consolidation::consolidate;
 use crate::local::{LocalChange, LocalWatcher};
 use crate::propagation::Propagator;
-use crate::reconciliation::{reconcile, Observations};
+use crate::reconciliation::{reconcile, Observations, Operation};
 use crate::remote::{RemoteChange, RemoteWatcher};
 use crate::state::State;
 use chrono::{DateTime, Utc};
@@ -20,9 +20,20 @@ use tokio::sync::mpsc;
 pub enum SyncEvent {
     Started,
     /// Sync loop completed a full cycle; `at` is the completion time.
-    Idle { at: DateTime<Utc> },
-    Busy { queue: usize },
-    Error { message: String },
+    Idle {
+        at: DateTime<Utc>,
+    },
+    Busy {
+        queue: usize,
+    },
+    Error {
+        message: String,
+    },
+    /// A file/folder has entered the transfer queue (before it starts).
+    FileQueued {
+        rel: String,
+        direction: Direction,
+    },
     /// A file was successfully synced.
     Synced {
         rel: String,
@@ -132,6 +143,7 @@ impl SyncAgent {
                     let _ = self.events_tx.send(SyncEvent::Busy { queue: take.local.len() + take.remote.len() + 1 });
                     let ops = reconcile(take, &self.excluded_paths);
                     let resolved = resolve(ops);
+                    emit_queued(&resolved, &self.events_tx);
                     propagator.apply(resolved).await;
                     consolidate(&self.events_tx);
                 }
@@ -146,6 +158,7 @@ impl SyncAgent {
                         });
                         let ops = reconcile(take, &self.excluded_paths);
                         let resolved = resolve(ops);
+                        emit_queued(&resolved, &self.events_tx);
                         propagator.apply(resolved).await;
                         consolidate(&self.events_tx);
                     }
@@ -160,10 +173,48 @@ impl SyncAgent {
                     });
                     let ops = reconcile(take, &self.excluded_paths);
                     let resolved = resolve(ops);
+                    emit_queued(&resolved, &self.events_tx);
                     propagator.apply(resolved).await;
                     consolidate(&self.events_tx);
                 }
             }
+        }
+    }
+}
+
+/// Emit a `FileQueued` event for every transfer operation so the UI can
+/// show the full download/upload queue before work begins.
+fn emit_queued(ops: &[Operation], tx: &SyncEventTx) {
+    for op in ops {
+        let ev = match op {
+            Operation::UploadNew { rel, .. } => Some(SyncEvent::FileQueued {
+                rel: rel.clone(),
+                direction: Direction::Up,
+            }),
+            Operation::UploadUpdate { mapping, .. } => Some(SyncEvent::FileQueued {
+                rel: mapping.rel_path.clone(),
+                direction: Direction::Up,
+            }),
+            Operation::DownloadNew { rel, .. } => Some(SyncEvent::FileQueued {
+                rel: rel.clone(),
+                direction: Direction::Down,
+            }),
+            Operation::DownloadUpdate { mapping } => Some(SyncEvent::FileQueued {
+                rel: mapping.rel_path.clone(),
+                direction: Direction::Down,
+            }),
+            Operation::CreateLocalDir { rel, .. } => Some(SyncEvent::FileQueued {
+                rel: rel.clone(),
+                direction: Direction::Down,
+            }),
+            Operation::CreateRemoteDir { rel, .. } => Some(SyncEvent::FileQueued {
+                rel: rel.clone(),
+                direction: Direction::Up,
+            }),
+            _ => None,
+        };
+        if let Some(ev) = ev {
+            let _ = tx.send(ev);
         }
     }
 }

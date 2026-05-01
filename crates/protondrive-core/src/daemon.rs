@@ -170,11 +170,13 @@ impl Daemon {
     pub async fn logout(&self) -> Result<()> {
         self.authenticated.store(false, Ordering::Relaxed);
         // Clear bridge (and revoke server-side session).
-        if let Some(b) = self.bridge.lock().take() {
+        let bridge = self.bridge.lock().take();
+        if let Some(b) = bridge {
             let _ = b.logout().await;
         }
         // Wipe all keyring slots.
-        if let Some(email) = self.config.lock().email.clone() {
+        let email = self.config.lock().email.clone();
+        if let Some(email) = email {
             let kr = Keyring::for_account(email);
             let _ = tokio::join!(
                 kr.delete(Slot::Uid),

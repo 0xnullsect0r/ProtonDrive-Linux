@@ -89,8 +89,7 @@ fn login_success_parses_credential() {
 #[test]
 fn login_hv_required_parses() {
     let json = fixture("login_hv_required.json");
-    let env: Envelope<serde_json::Value> =
-        serde_json::from_str(&json).expect("hv_required parse");
+    let env: Envelope<serde_json::Value> = serde_json::from_str(&json).expect("hv_required parse");
     assert!(env.err.is_none());
     let v = env.ok.expect("ok field present");
     assert_eq!(

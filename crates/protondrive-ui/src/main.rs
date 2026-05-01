@@ -45,10 +45,7 @@ fn main() -> Result<()> {
                 .with_writer(non_blocking)
                 .with_ansi(false),
         )
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_writer(std::io::stderr),
-        )
+        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
         .with(env_filter)
         .init();
 
