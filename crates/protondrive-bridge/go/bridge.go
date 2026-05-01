@@ -357,17 +357,19 @@ func pd_login_hv(sessionID C.longlong, argsJSON *C.char) *C.char {
 	s.pendingLogin = nil
 
 	// 6. Init the drive with the pre-computed credential (no auth call).
-	drive, cred, err := bridge.NewProtonDrive(s.ctx, s.cfg, nil, nil)
+	drive, _, err := bridge.NewProtonDrive(s.ctx, s.cfg, nil, nil)
 	if err != nil {
 		return cErr(fmt.Errorf("hv drive init: %w", err))
 	}
 	s.drive = drive
-	s.cred = cred
+	// Use the credential we built from the HV auth — common.Login returns nil
+	// cred on the reusable-login path, so we read back from the config.
+	rc := s.cfg.ReusableCredential
 	return cOK(credDTO{
-		UID:           cred.UID,
-		AccessToken:   cred.AccessToken,
-		RefreshToken:  cred.RefreshToken,
-		SaltedKeyPass: cred.SaltedKeyPass,
+		UID:           rc.UID,
+		AccessToken:   rc.AccessToken,
+		RefreshToken:  rc.RefreshToken,
+		SaltedKeyPass: rc.SaltedKeyPass,
 	})
 }
 
@@ -388,17 +390,18 @@ func pd_resume(sessionID C.longlong, argsJSON *C.char) *C.char {
 		RefreshToken:  a.RefreshToken,
 		SaltedKeyPass: a.SaltedKeyPass,
 	}
-	drive, cred, err := bridge.NewProtonDrive(s.ctx, s.cfg, nil, nil)
+	drive, _, err := bridge.NewProtonDrive(s.ctx, s.cfg, nil, nil)
 	if err != nil {
 		return cErr(err)
 	}
 	s.drive = drive
-	s.cred = cred
+	// common.Login returns nil cred on the reusable-login path; read from config.
+	rc := s.cfg.ReusableCredential
 	return cOK(credDTO{
-		UID:           cred.UID,
-		AccessToken:   cred.AccessToken,
-		RefreshToken:  cred.RefreshToken,
-		SaltedKeyPass: cred.SaltedKeyPass,
+		UID:           rc.UID,
+		AccessToken:   rc.AccessToken,
+		RefreshToken:  rc.RefreshToken,
+		SaltedKeyPass: rc.SaltedKeyPass,
 	})
 }
 
