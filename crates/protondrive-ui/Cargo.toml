@@ -23,6 +23,7 @@ gtk4.workspace         = true
 libadwaita.workspace   = true
 glib.workspace         = true
 ksni.workspace         = true
+ureq.workspace         = true
 async-channel = "2"
 
 # --- packaging metadata ---------------------------------------------------

@@ -295,9 +295,12 @@ fn page_credentials(daemon: Daemon) -> gtk4::Widget {
     page_wrap(vec![group.upcast(), status.upcast(), signin.upcast()])
 }
 
-/// Starts a minimal local HTTP server that serves a captcha iframe page,
-/// opens the browser, and waits for the Human Verification token.
-/// Returns `Some((hv_type, token))` on success.
+/// Fetches verify.proton.me, injects an interception script, and serves the
+/// modified page from a local HTTP server.  Because we serve the page as the
+/// *top-level* document (not inside an iframe), the `frame-ancestors` CSP is
+/// irrelevant.  When the page is top-level, `window.parent === window`, so
+/// `window.parent.postMessage(data, "*")` dispatches a `message` event on the
+/// current window — our injected listener forwards the token to `/submit`.
 fn run_hv_server(hv_token: &str, methods: &[String]) -> Option<(String, String)> {
     use std::io::{Read, Write};
     use std::net::TcpListener;
@@ -310,57 +313,81 @@ fn run_hv_server(hv_token: &str, methods: &[String]) -> Option<(String, String)>
         methods.join(",")
     };
 
-    // Build the HTML page that embeds verify.proton.me and captures the result.
+    // Fetch the real verify page so we can proxy it with our injected script.
     let verify_url = format!(
         "https://verify.proton.me/?methods={}&token={}&theme=dark",
         methods_str, hv_token
     );
-    let html = format!(
-        r#"<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>Proton Human Verification</title>
-<style>
-  body {{ margin:0; padding:0; background:#1a1a2e; display:flex; flex-direction:column; height:100vh; }}
-  h2 {{ color:#fff; font-family:sans-serif; padding:12px; margin:0; font-size:14px; background:#0e0e1a; }}
-  iframe {{ flex:1; border:none; }}
-</style>
-</head>
-<body>
-<h2>Complete the verification below, then return to ProtonDrive-Linux.</h2>
-<iframe id="hv" src="{verify_url}" allow="cross-origin-isolated"></iframe>
-<script>
-window.addEventListener("message", function(e) {{
-  var d = e.data;
-  if (!d) return;
-  // Proton's verify page posts several message shapes:
-  //   {{ type:"pm_captcha", token:"..." }}
-  //   {{ type:"human-verification", token:"...", tokenType:"captcha" }}
-  var token = d.token || d.captcha_token || "";
-  var tokenType = d.tokenType || d.type || "captcha";
-  if (tokenType === "pm_captcha") tokenType = "captcha";
-  if (token) {{
-    fetch("/submit", {{
-      method: "POST",
-      headers: {{"Content-Type": "application/json"}},
-      body: JSON.stringify({{token: token, tokenType: tokenType}})
-    }}).then(function() {{
-      document.body.innerHTML = "<h2 style='color:#0f0;font-family:sans-serif;padding:24px;'>Verification complete! You can close this tab.</h2>";
-    }});
+    let raw_html = ureq::get(&verify_url)
+        .set(
+            "User-Agent",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) \
+             Chrome/124.0.0.0 Safari/537.36",
+        )
+        .set(
+            "Accept",
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        )
+        .set("Accept-Language", "en-US,en;q=0.9")
+        .call()
+        .ok()
+        .and_then(|r| r.into_string().ok())
+        .unwrap_or_default();
+
+    // Script injected at the very top of <head>:
+    //  • <base> makes the browser resolve all relative asset URLs against
+    //    verify.proton.me, so scripts/styles load even though we serve from
+    //    localhost.
+    //  • Our JS captures the captcha token whether it comes through
+    //    window.parent.postMessage() or a plain window.postMessage().
+    let injector = format!(
+        r##"<base href="https://verify.proton.me/">
+<script>(function(){{
+  var PORT={port};var sent=false;
+  function capture(d){{
+    if(sent||!d)return;
+    var tok=d.token||d.captcha_token||'';
+    var tt=d.tokenType||(d.type==='pm_captcha'?'captcha':(d.type||'captcha'));
+    if(!tok)return;
+    sent=true;
+    var x=new XMLHttpRequest();
+    x.open('POST','http://127.0.0.1:'+PORT+'/submit');
+    x.setRequestHeader('Content-Type','application/json');
+    x.send(JSON.stringify({{token:tok,tokenType:tt}}));
   }}
-}});
-</script>
-</body>
-</html>"#,
-        verify_url = verify_url
+  // Override window.parent so explicit postMessage calls are captured.
+  try{{Object.defineProperty(window,'parent',{{configurable:true,get:function(){{return{{postMessage:capture}};}}}}); }}catch(e){{}}
+  // Fallback: when window.parent===window the call dispatches a message event.
+  window.addEventListener('message',function(e){{capture(e.data);}},true);
+}})();</script>"##,
+        port = port
     );
 
-    // Open the browser to the local page.
-    let url = format!("http://127.0.0.1:{port}/");
-    let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
+    // Inject right after <head> (or prepend if no head tag).
+    let html = match raw_html.find("<head>") {
+        Some(pos) => {
+            let after = pos + "<head>".len();
+            format!(
+                "{}<head>{}{}",
+                &raw_html[..pos],
+                injector,
+                &raw_html[after..]
+            )
+        }
+        None => format!("{}\n{}", injector, raw_html),
+    };
 
-    // Serve HTTP — handle GET / (HTML page) and POST /submit (token receiver).
+    // Open the browser to our local proxy page.
+    let local_url = format!("http://127.0.0.1:{port}/");
+    let _ = std::process::Command::new("xdg-open")
+        .arg(&local_url)
+        .spawn();
+
+    // Serve HTTP.  We override the CSP with a permissive policy so the
+    // browser doesn't block the captcha widget (loaded inside an iframe from
+    // verify-api.proton.me) or our injected inline script.
+    let csp = "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; \
+               frame-src *; connect-src *; worker-src *;";
     let mut result: Option<(String, String)> = None;
     for mut stream in listener.incoming().flatten() {
         let mut buf = vec![0u8; 8192];
@@ -369,29 +396,32 @@ window.addEventListener("message", function(e) {{
         let first_line = req.lines().next().unwrap_or("");
 
         if first_line.starts_with("POST /submit") {
-            // Extract JSON body after the blank line.
             let body = req.split("\r\n\r\n").nth(1).unwrap_or("").trim();
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(body) {
                 let token = v["token"].as_str().unwrap_or("").to_string();
                 let token_type = v["tokenType"].as_str().unwrap_or("captcha").to_string();
-                result = Some((token_type, token));
+                if !token.is_empty() {
+                    result = Some((token_type, token));
+                }
             }
             let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok");
             break;
         } else if first_line.starts_with("GET /") {
-            let resp = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
-                html.len(),
-                html
+            let header = format!(
+                "HTTP/1.1 200 OK\r\n\
+                 Content-Type: text/html; charset=utf-8\r\n\
+                 Content-Security-Policy: {csp}\r\n\
+                 Content-Length: {}\r\n\r\n",
+                html.len()
             );
-            let _ = stream.write_all(resp.as_bytes());
+            let _ = stream.write_all(header.as_bytes());
+            let _ = stream.write_all(html.as_bytes());
         } else {
             let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
         }
     }
     result
 }
-
 fn page_totp(daemon: Daemon) -> gtk4::Widget {
     let group = adw::PreferencesGroup::builder()
         .title("Two-factor authentication")
