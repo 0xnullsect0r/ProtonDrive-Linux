@@ -63,9 +63,7 @@ impl InodeTable {
             }
         }
         let ino = self.next.fetch_add(1, Ordering::SeqCst);
-        if let (Ok(mut il), Ok(mut li)) =
-            (self.ino_to_link.write(), self.link_to_ino.write())
-        {
+        if let (Ok(mut il), Ok(mut li)) = (self.ino_to_link.write(), self.link_to_ino.write()) {
             il.insert(ino, link_id.to_string());
             li.insert(link_id.to_string(), ino);
         }
@@ -230,7 +228,10 @@ impl ProtonVfs {
             }
             Err(e) => {
                 let _ = std::fs::remove_file(&tmp_path);
-                Err(std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string(),
+                ))
             }
         }
     }

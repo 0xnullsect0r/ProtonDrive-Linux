@@ -105,7 +105,14 @@ impl SyncController {
             let fuse_bridge = bridge.clone();
             let rt_handle = self.rt.clone();
 
-            match protondrive_fuse::mount(fuse_state, fuse_bridge, cache_dir, &mount_root, rid, rt_handle) {
+            match protondrive_fuse::mount(
+                fuse_state,
+                fuse_bridge,
+                cache_dir,
+                &mount_root,
+                rid,
+                rt_handle,
+            ) {
                 Ok(session) => {
                     *self.fuse_session.lock() = Some(session);
                     tracing::info!("FUSE mount started at {}", mount_root.display());

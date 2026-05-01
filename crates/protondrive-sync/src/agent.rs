@@ -129,7 +129,6 @@ impl SyncAgent {
         }
     }
 
-
     pub fn subscribe(&self) -> broadcast::Receiver<SyncEvent> {
         self.events_tx.subscribe()
     }
