@@ -116,6 +116,7 @@ impl SyncController {
     }
 
     /// Restart the agent (abort current, start fresh — gives a clean full scan).
+    #[allow(dead_code)]
     pub fn restart(&self, daemon: &Daemon) {
         if let Err(e) = self.start(daemon) {
             tracing::warn!(error=%e, "sync restart failed");

@@ -98,11 +98,12 @@ pub fn build_main_window(app: &adw::Application, daemon: Daemon, sync_ctrl: Sync
         });
     }
 
-    // 1-second timer: refresh "X ago" labels and account login badge.
+    // 1-second timer: refresh "X ago" labels, account login badge, and sync status.
     let ss_timer = sync_state.clone();
     let daemon_timer = daemon.clone();
+    let sc_timer = sync_ctrl.clone();
     glib::timeout_add_local(Duration::from_secs(1), move || {
-        refresh_time_labels(&ss_timer);
+        refresh_time_labels(&ss_timer, &sc_timer);
         refresh_account_badge(&daemon_timer);
         glib::ControlFlow::Continue
     });
@@ -228,8 +229,8 @@ fn apply_sync_event(ev: SyncEvent, ss: &SyncState) {
     }
 }
 
-fn refresh_time_labels(ss: &SyncState) {
-    let s = ss.inner.borrow();
+fn refresh_time_labels(ss: &SyncState, sc: &SyncController) {
+    let mut s = ss.inner.borrow_mut();
     if let Some(at) = s.last_idle {
         s.last_synced_label
             .set_label(&format!("Last synced: {}", fmt_age(at)));
@@ -237,6 +238,24 @@ fn refresh_time_labels(ss: &SyncState) {
     // Pulse progress bar while busy/starting.
     if matches!(s.status, Status::Busy(_) | Status::Starting) {
         s.progress.pulse();
+    }
+    // If agent just became running but our UI status is still NotRunning, update it.
+    if sc.is_running() && s.status == Status::NotRunning {
+        s.status = Status::Starting;
+        s.status_label.set_label("Connecting…");
+        s.status_icon
+            .set_icon_name(Some("content-loading-symbolic"));
+        s.progress.set_visible(true);
+        s.progress.pulse();
+        s.empty_label.set_visible(false);
+    }
+    // If agent stopped and UI thinks it's still running, mark as not running.
+    if !sc.is_running() && matches!(s.status, Status::Starting | Status::Busy(_) | Status::Idle) {
+        s.status = Status::NotRunning;
+        s.status_label.set_label("Not running");
+        s.status_icon
+            .set_icon_name(Some("dialog-warning-symbolic"));
+        s.progress.set_visible(false);
     }
 }
 
@@ -247,12 +266,14 @@ thread_local! {
 
 struct AccountWidgets {
     daemon: Daemon,
+    sync_ctrl: SyncController,
     logged_in_box: gtk4::Box,
     email_label: gtk4::Label,
     login_box: gtk4::Box,
+    sync_status_row: adw::ActionRow,
 }
 
-fn refresh_account_badge(daemon: &Daemon) {
+fn refresh_account_badge(_daemon: &Daemon) {
     ACCOUNT_WIDGETS.with(|cell| {
         if let Some(aw) = cell.borrow().as_ref() {
             let logged_in = aw.daemon.is_logged_in();
@@ -263,16 +284,20 @@ fn refresh_account_badge(daemon: &Daemon) {
                     aw.email_label
                         .set_label(&format!("Signed in as {email}"));
                 }
-            }
-        }
-        if daemon.is_logged_in() {
-            if let Some(aw) = cell.borrow().as_ref() {
-                if let Some(email) = aw.daemon.email() {
-                    aw.email_label
-                        .set_label(&format!("Signed in as {email}"));
+                // Update sync status subtitle every tick.
+                let (subtitle, icon) = if aw.sync_ctrl.is_running() {
+                    ("Active", "emblem-default-symbolic")
+                } else {
+                    ("Not running", "dialog-warning-symbolic")
+                };
+                aw.sync_status_row.set_subtitle(subtitle);
+                if let Some(icon_widget) = aw
+                    .sync_status_row
+                    .child()
+                    .and_downcast::<gtk4::Image>()
+                {
+                    icon_widget.set_icon_name(Some(icon));
                 }
-                aw.logged_in_box.set_visible(true);
-                aw.login_box.set_visible(false);
             }
         }
     });
@@ -385,8 +410,17 @@ fn page_syncing(daemon: Daemon, sync_ctrl: SyncController) -> (gtk4::Widget, Syn
     // "Sync Now" wires.
     let sc = sync_ctrl.clone();
     let d = daemon.clone();
+    let ss_btn = sync_state.clone();
     sync_now_btn.connect_clicked(move |_| {
-        sc.restart(&d);
+        if let Err(e) = sc.start(&d) {
+            let mut s = ss_btn.inner.borrow_mut();
+            s.status = Status::Error(e.to_string());
+            s.status_label
+                .set_label(&format!("Failed to start sync: {e}"));
+            s.status_icon
+                .set_icon_name(Some("dialog-error-symbolic"));
+            s.progress.set_visible(false);
+        }
     });
 
     // Layout.
@@ -566,9 +600,11 @@ fn page_account(daemon: Daemon, sync_ctrl: SyncController) -> gtk4::Widget {
     ACCOUNT_WIDGETS.with(|cell| {
         *cell.borrow_mut() = Some(AccountWidgets {
             daemon: daemon.clone(),
+            sync_ctrl: sync_ctrl.clone(),
             logged_in_box: logged_in_box.clone(),
             email_label: email_label.clone(),
             login_box: login_box.clone(),
+            sync_status_row: sync_status_row.clone(),
         });
     });
 
