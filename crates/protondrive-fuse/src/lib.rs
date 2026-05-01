@@ -139,7 +139,7 @@ impl ProtonVfs {
         FileAttr {
             ino,
             size,
-            blocks: (size + 511) / 512,
+            blocks: size.div_ceil(512),
             atime: ts,
             mtime: ts,
             ctime: ts,
@@ -228,10 +228,7 @@ impl ProtonVfs {
             }
             Err(e) => {
                 let _ = std::fs::remove_file(&tmp_path);
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string(),
-                ))
+                Err(std::io::Error::other(e.to_string()))
             }
         }
     }
@@ -389,11 +386,9 @@ impl Filesystem for ProtonVfs {
         match self.ensure_cached(&link_id) {
             Ok(path) => match std::fs::File::open(&path) {
                 Ok(mut f) => {
-                    if offset > 0 {
-                        if f.seek(SeekFrom::Start(offset as u64)).is_err() {
-                            reply.error(libc::EIO);
-                            return;
-                        }
+                    if f.seek(SeekFrom::Start(offset as u64)).is_err() {
+                        reply.error(libc::EIO);
+                        return;
                     }
                     let mut buf = vec![0u8; size as usize];
                     match f.read(&mut buf) {

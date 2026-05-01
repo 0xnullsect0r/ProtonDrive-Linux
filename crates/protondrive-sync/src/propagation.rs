@@ -215,6 +215,7 @@ impl Propagator {
         Ok(cur)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn record_mapping(
         &self,
         rel: &str,
