@@ -53,6 +53,10 @@ exec "$HERE/usr/bin/protondrive" "$@"
 EOF
 chmod +x "$WORK/AppRun"
 
+# Our main app uses GTK4; protondrive-hv uses GTK3 (webkit2gtk-4.1).
+# Tell the linuxdeploy GTK plugin which version to bundle.
+export DEPLOY_GTK_VERSION=4
+
 linuxdeploy --appdir "$WORK" \
     --plugin gtk \
     --output appimage \
