@@ -12,6 +12,7 @@ finish-args:
   - --socket=fallback-x11
   - --socket=wayland
   - --device=dri
+  - --device=fuse
   - --filesystem=home
   - --talk-name=org.freedesktop.secrets
   - --talk-name=org.kde.StatusNotifierWatcher
@@ -23,6 +24,20 @@ build-options:
   env:
     CARGO_HOME: /run/build/protondrive-linux/cargo
 modules:
+  # Build-time fuse3 headers (not in GNOME SDK 48 build deps).
+  # At runtime libfuse.so.2 is provided by the GNOME Platform via gvfs.
+  - name: fuse3
+    buildsystem: meson
+    config-opts:
+      - -Dexamples=false
+      - -Duseroot=false
+      - -Dinitscriptdir=''
+      - -Dudevrulesdir=/app/lib/udev/rules.d
+    sources:
+      - type: archive
+        url: https://github.com/libfuse/libfuse/releases/download/fuse-3.16.2/fuse-3.16.2.tar.gz
+        sha256: f797055d9296b275e981f5f62d4e32e089614fc253d1ef2985851025b8a0ce87
+
   - name: protondrive-linux
     buildsystem: simple
     build-commands:

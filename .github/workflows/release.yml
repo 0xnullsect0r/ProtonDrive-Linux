@@ -182,6 +182,7 @@ jobs:
             gtk4-devel libadwaita-devel libsecret-devel \
             openssl-devel dbus-devel pkgconf-pkg-config systemd-rpm-macros tar \
             webkit2gtk4.1-devel \
+            fuse-devel \
             curl-minimal ca-certificates
           # Fedora 41's bundled rustc (1.86) is too old for some workspace
           # dependencies (home@0.5.12 needs 1.88+). Install an up-to-date
@@ -262,6 +263,7 @@ jobs:
             libgtk-4-dev libadwaita-1-dev \
             libwebkit2gtk-4.1-0 libwebkit2gtk-4.1-dev \
             libgdk-pixbuf-2.0-0 libgdk-pixbuf2.0-bin librsvg2-common \
+            libfuse2t64 \
             file desktop-file-utils patchelf wget ca-certificates
       - name: Restore release binaries
         uses: actions/download-artifact@v4
