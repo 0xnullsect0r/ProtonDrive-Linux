@@ -131,10 +131,19 @@ impl SyncController {
     }
 
     fn stop_internal(&self) {
-        if let Some(h) = self.task.lock().take() {
-            h.abort();
-        }
+        // Drop the event/resync senders first so the broadcast channel closes
+        // and the forwarding task exits cleanly.
         *self.event_tx.lock() = None;
         *self.resync_tx.lock() = None;
+
+        if let Some(h) = self.task.lock().take() {
+            h.abort();
+            // Block until the aborted task finishes dropping (completes very
+            // quickly since it was just cancelled).  This prevents a new agent
+            // from starting before the old LocalWatcher / notify watcher has
+            // fully dropped, which would otherwise cause a panic in notify's
+            // inotify backend on the overlap.
+            let _ = self.rt.block_on(h);
+        }
     }
 }

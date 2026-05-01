@@ -650,8 +650,10 @@ func pd_events(sessionID C.longlong, since C.longlong) *C.char {
 		Size       int64  `json:"size"`
 	}
 	out := []evt{}
-	var walk func(string) error
-	walk = func(id string) error {
+	// walk accumulates the full relative path so the Rust side can place
+	// files at the correct location inside the sync root.
+	var walk func(id string, prefix string) error
+	walk = func(id string, prefix string) error {
 		entries, err := s.drive.ListDirectory(s.ctx, id)
 		if err != nil {
 			return err
@@ -660,25 +662,32 @@ func pd_events(sessionID C.longlong, since C.longlong) *C.char {
 			if e.Link == nil {
 				continue
 			}
+			// Build the full relative path (e.g. "Documents/photo.jpg").
+			var relPath string
+			if prefix == "" {
+				relPath = e.Name
+			} else {
+				relPath = prefix + "/" + e.Name
+			}
 			if e.Link.ModifyTime > cutoff {
 				out = append(out, evt{
 					LinkID:     e.Link.LinkID,
 					ParentID:   e.Link.ParentLinkID,
-					Name:       e.Name,
+					Name:       relPath,
 					IsFolder:   e.IsFolder,
 					ModifyTime: e.Link.ModifyTime,
 					Size:       e.Link.Size,
 				})
 			}
 			if e.IsFolder {
-				if err := walk(e.Link.LinkID); err != nil {
+				if err := walk(e.Link.LinkID, relPath); err != nil {
 					return err
 				}
 			}
 		}
 		return nil
 	}
-	if err := walk(s.drive.RootLink.LinkID); err != nil {
+	if err := walk(s.drive.RootLink.LinkID, ""); err != nil {
 		return cErr(err)
 	}
 	return cOK(map[string]any{

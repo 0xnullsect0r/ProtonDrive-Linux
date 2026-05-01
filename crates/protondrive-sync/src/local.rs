@@ -4,7 +4,6 @@
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 use tokio::sync::mpsc;
 
 #[derive(Debug, Clone)]
@@ -42,16 +41,13 @@ impl LocalWatcher {
                 let Ok(ev) = res else {
                     return;
                 };
-                let tx = tx.clone();
                 let root = root_for_cb.clone();
                 let changes = translate_event(&root, &ev);
-                tokio::spawn(async move {
-                    for c in changes {
-                        // 500ms debounce window per file
-                        tokio::time::sleep(Duration::from_millis(50)).await;
-                        let _ = tx.send(c).await;
-                    }
-                });
+                // blocking_send is safe here — notify calls this on a plain OS
+                // thread with no Tokio runtime; tokio::spawn would panic.
+                for c in changes {
+                    let _ = tx.blocking_send(c);
+                }
             })
             .map_err(io_err)?;
         watcher
