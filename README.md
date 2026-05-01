@@ -176,3 +176,33 @@ git push origin v0.1.0
 ## License
 
 GPL-3.0-or-later.
+
+---
+
+## Troubleshooting
+
+### "For security reasons, please complete the CAPTCHA" / Code 9001
+
+Proton challenges sign-in attempts from new IPs or unfamiliar clients with a
+CAPTCHA / Human Verification. Native (non-browser) clients can't solve it
+in-app. Workaround:
+
+1. Open <https://account.proton.me> in your browser **on this same machine**
+   and sign in there once, solving any CAPTCHA Proton presents.
+2. Immediately come back to ProtonDrive-Linux and click **Sign in** again.
+
+Your IP will be trusted for roughly 24 hours afterwards. If you switch
+networks (e.g. VPN, mobile hotspot), repeat the browser sign-in.
+
+### Code 2064 / "Invalid Section Name"
+
+Proton rejected the request as malformed because the `x-pm-appversion`
+header is unrecognised. Update to the latest ProtonDrive-Linux release —
+this is fixed in v0.1.8+.
+
+### TOTP / 2FA code rejected
+
+Make sure you pasted the **secret key** (Base32, e.g. `JBSWY3DPEHPK3PXP…`),
+not a 6-digit code. Strip spaces. The current generated code is shown live
+on the Two-Factor tab — verify it matches your authenticator app before
+signing in.

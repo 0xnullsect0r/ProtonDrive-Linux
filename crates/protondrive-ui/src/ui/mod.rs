@@ -194,7 +194,32 @@ fn page_credentials(daemon: Daemon) -> gtk4::Widget {
                 btn_done.set_sensitive(true);
                 match res {
                     Ok(()) => status_done.set_text("Signed in. Sync starting…"),
-                    Err(e) => status_done.set_text(&format!("Sign-in failed: {e}")),
+                    Err(e) => {
+                        let lower = e.to_lowercase();
+                        let friendly = if lower.contains("captcha")
+                            || lower.contains("human verification")
+                            || lower.contains("9001")
+                        {
+                            "Sign-in failed: Proton requested CAPTCHA / human verification. \
+                             Open https://account.proton.me in your browser, sign in there \
+                             once (solve the CAPTCHA), then retry here. Your IP will be \
+                             trusted for ~24h."
+                                .to_string()
+                        } else if lower.contains("2064") {
+                            "Sign-in failed: Proton rejected the request as malformed (Code 2064). \
+                             This usually means the app version header is unrecognised — please \
+                             update ProtonDrive-Linux."
+                                .to_string()
+                        } else if lower.contains("totp") || lower.contains("2fa") {
+                            format!(
+                                "Sign-in failed: 2FA code rejected. Double-check the TOTP \
+                                     secret key (Base32, no spaces). Original error: {e}"
+                            )
+                        } else {
+                            format!("Sign-in failed: {e}")
+                        };
+                        status_done.set_text(&friendly);
+                    }
                 }
             }
         });
