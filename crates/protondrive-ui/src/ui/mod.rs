@@ -19,11 +19,36 @@ pub fn build_main_window(app: &adw::Application, daemon: Daemon) {
     toolbar.add_top_bar(&adw::HeaderBar::new());
 
     let stack = adw::ViewStack::new();
-    stack.add_titled_with_icon(&page_welcome(), Some("welcome"), "Welcome", "emblem-default-symbolic");
-    stack.add_titled_with_icon(&page_credentials(daemon.clone()), Some("creds"), "Account", "dialog-password-symbolic");
-    stack.add_titled_with_icon(&page_totp(daemon.clone()), Some("totp"), "Two-Factor", "system-lock-screen-symbolic");
-    stack.add_titled_with_icon(&page_folder(daemon.clone()), Some("folder"), "Sync Folder", "folder-symbolic");
-    stack.add_titled_with_icon(&page_status(daemon.clone()), Some("status"), "Status", "emblem-synchronizing-symbolic");
+    stack.add_titled_with_icon(
+        &page_welcome(),
+        Some("welcome"),
+        "Welcome",
+        "emblem-default-symbolic",
+    );
+    stack.add_titled_with_icon(
+        &page_credentials(daemon.clone()),
+        Some("creds"),
+        "Account",
+        "dialog-password-symbolic",
+    );
+    stack.add_titled_with_icon(
+        &page_totp(daemon.clone()),
+        Some("totp"),
+        "Two-Factor",
+        "system-lock-screen-symbolic",
+    );
+    stack.add_titled_with_icon(
+        &page_folder(daemon.clone()),
+        Some("folder"),
+        "Sync Folder",
+        "folder-symbolic",
+    );
+    stack.add_titled_with_icon(
+        &page_status(daemon.clone()),
+        Some("status"),
+        "Status",
+        "emblem-synchronizing-symbolic",
+    );
 
     let switcher = adw::ViewSwitcherBar::builder()
         .stack(&stack)
