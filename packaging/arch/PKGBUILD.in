@@ -8,7 +8,7 @@ pkgdesc="Unofficial native Linux client for Proton Drive (sync engine + GTK4 UI 
 arch=('x86_64' 'aarch64')
 url="https://github.com/0xnullsect0r/ProtonDrive-Linux"
 license=('GPL-3.0-or-later')
-depends=('libsecret' 'gtk4' 'libadwaita' 'openssl')
+depends=('libsecret' 'gtk4' 'libadwaita' 'openssl' 'webkit2gtk-4.1')
 optdepends=(
   'gnome-shell-extension-appindicator: system-tray icon on GNOME'
   'plasma-workspace: system-tray icon on KDE Plasma'
@@ -28,6 +28,8 @@ build() {
   export RUSTUP_TOOLCHAIN=stable
   export CARGO_TARGET_DIR=target
   cargo build --release --locked
+  # Build the GTK3/webkit2gtk captcha helper (separate workspace)
+  (cd crates/protondrive-hv && cargo build --release)
 }
 
 check() {
@@ -40,6 +42,7 @@ package() {
   install -Dm0755 target/release/protondrive       "$pkgdir/usr/bin/protondrive"
   install -Dm0755 target/release/protondrived      "$pkgdir/usr/bin/protondrived"
   install -Dm0755 target/release/protondrive-cli   "$pkgdir/usr/bin/protondrive-cli"
+  install -Dm0755 crates/protondrive-hv/target/release/protondrive-hv "$pkgdir/usr/bin/protondrive-hv"
   # Go-CGO bridge .so produced by build.rs; located at runtime via the
   # rpath embedded in the binaries (-Wl,-rpath,$ORIGIN/../lib).
   _bridge_so=$(find target/release/build -maxdepth 4 -name libprotonbridge.so | head -n1)

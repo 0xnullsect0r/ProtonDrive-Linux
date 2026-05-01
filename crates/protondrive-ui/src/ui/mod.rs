@@ -215,7 +215,7 @@ fn page_credentials(daemon: Daemon) -> gtk4::Widget {
                         let (tx2, rx2) = async_channel::bounded::<(String, String)>(1);
                         std::thread::spawn(move || {
                             if let Some((hv_type, solved_token)) =
-                                run_hv_server(&token_clone, &methods_clone)
+                                run_hv_subprocess(&token_clone, &methods_clone)
                             {
                                 let _ = tx2.send_blocking((hv_type, solved_token));
                             }
@@ -295,132 +295,39 @@ fn page_credentials(daemon: Daemon) -> gtk4::Widget {
     page_wrap(vec![group.upcast(), status.upcast(), signin.upcast()])
 }
 
-/// Fetches verify.proton.me, injects an interception script, and serves the
-/// modified page from a local HTTP server.  Because we serve the page as the
-/// *top-level* document (not inside an iframe), the `frame-ancestors` CSP is
-/// irrelevant.  When the page is top-level, `window.parent === window`, so
-/// `window.parent.postMessage(data, "*")` dispatches a `message` event on the
-/// current window — our injected listener forwards the token to `/submit`.
-fn run_hv_server(hv_token: &str, methods: &[String]) -> Option<(String, String)> {
-    use std::io::{Read, Write};
-    use std::net::TcpListener;
-
-    let listener = TcpListener::bind("127.0.0.1:0").ok()?;
-    let port = listener.local_addr().ok()?.port();
+/// Spawns the `protondrive-hv` helper binary (a GTK3+webkit2gtk-4.1 process)
+/// which displays the verify.proton.me captcha in an embedded web view.
+/// Returns `Some((tokenType, token))` when the user completes the challenge,
+/// or `None` if the helper couldn't be found or the window was closed.
+fn run_hv_subprocess(hv_token: &str, methods: &[String]) -> Option<(String, String)> {
     let methods_str = if methods.is_empty() {
         "captcha".to_string()
     } else {
-        methods.join(",")
+        methods[0].clone() // use first method (typically "captcha")
     };
 
-    // Fetch the real verify page so we can proxy it with our injected script.
-    let verify_url = format!(
-        "https://verify.proton.me/?methods={}&token={}&theme=dark",
-        methods_str, hv_token
-    );
-    let raw_html = ureq::get(&verify_url)
-        .set(
-            "User-Agent",
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) \
-             Chrome/124.0.0.0 Safari/537.36",
-        )
-        .set(
-            "Accept",
-            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        )
-        .set("Accept-Language", "en-US,en;q=0.9")
-        .call()
+    // Locate the helper binary next to the current executable first, then PATH.
+    let helper = std::env::current_exe()
         .ok()
-        .and_then(|r| r.into_string().ok())
-        .unwrap_or_default();
+        .and_then(|p| p.parent().map(|d| d.join("protondrive-hv")))
+        .filter(|p| p.exists())
+        .unwrap_or_else(|| std::path::PathBuf::from("protondrive-hv"));
 
-    // Script injected at the very top of <head>:
-    //  • <base> makes the browser resolve all relative asset URLs against
-    //    verify.proton.me, so scripts/styles load even though we serve from
-    //    localhost.
-    //  • Our JS captures the captcha token whether it comes through
-    //    window.parent.postMessage() or a plain window.postMessage().
-    let injector = format!(
-        r##"<base href="https://verify.proton.me/">
-<script>(function(){{
-  var PORT={port};var sent=false;
-  function capture(d){{
-    if(sent||!d)return;
-    var tok=d.token||d.captcha_token||'';
-    var tt=d.tokenType||(d.type==='pm_captcha'?'captcha':(d.type||'captcha'));
-    if(!tok)return;
-    sent=true;
-    var x=new XMLHttpRequest();
-    x.open('POST','http://127.0.0.1:'+PORT+'/submit');
-    x.setRequestHeader('Content-Type','application/json');
-    x.send(JSON.stringify({{token:tok,tokenType:tt}}));
-  }}
-  // Override window.parent so explicit postMessage calls are captured.
-  try{{Object.defineProperty(window,'parent',{{configurable:true,get:function(){{return{{postMessage:capture}};}}}}); }}catch(e){{}}
-  // Fallback: when window.parent===window the call dispatches a message event.
-  window.addEventListener('message',function(e){{capture(e.data);}},true);
-}})();</script>"##,
-        port = port
-    );
+    let output = std::process::Command::new(&helper)
+        .arg(hv_token)
+        .arg(&methods_str)
+        .output()
+        .ok()?;
 
-    // Inject right after <head> (or prepend if no head tag).
-    let html = match raw_html.find("<head>") {
-        Some(pos) => {
-            let after = pos + "<head>".len();
-            format!(
-                "{}<head>{}{}",
-                &raw_html[..pos],
-                injector,
-                &raw_html[after..]
-            )
-        }
-        None => format!("{}\n{}", injector, raw_html),
-    };
-
-    // Open the browser to our local proxy page.
-    let local_url = format!("http://127.0.0.1:{port}/");
-    let _ = std::process::Command::new("xdg-open")
-        .arg(&local_url)
-        .spawn();
-
-    // Serve HTTP.  We override the CSP with a permissive policy so the
-    // browser doesn't block the captcha widget (loaded inside an iframe from
-    // verify-api.proton.me) or our injected inline script.
-    let csp = "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; \
-               frame-src *; connect-src *; worker-src *;";
-    let mut result: Option<(String, String)> = None;
-    for mut stream in listener.incoming().flatten() {
-        let mut buf = vec![0u8; 8192];
-        let n = stream.read(&mut buf).unwrap_or(0);
-        let req = String::from_utf8_lossy(&buf[..n]);
-        let first_line = req.lines().next().unwrap_or("");
-
-        if first_line.starts_with("POST /submit") {
-            let body = req.split("\r\n\r\n").nth(1).unwrap_or("").trim();
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(body) {
-                let token = v["token"].as_str().unwrap_or("").to_string();
-                let token_type = v["tokenType"].as_str().unwrap_or("captcha").to_string();
-                if !token.is_empty() {
-                    result = Some((token_type, token));
-                }
-            }
-            let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok");
-            break;
-        } else if first_line.starts_with("GET /") {
-            let header = format!(
-                "HTTP/1.1 200 OK\r\n\
-                 Content-Type: text/html; charset=utf-8\r\n\
-                 Content-Security-Policy: {csp}\r\n\
-                 Content-Length: {}\r\n\r\n",
-                html.len()
-            );
-            let _ = stream.write_all(header.as_bytes());
-            let _ = stream.write_all(html.as_bytes());
-        } else {
-            let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
-        }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let line = stdout.lines().find(|l| l.contains("token"))?;
+    let v: serde_json::Value = serde_json::from_str(line.trim()).ok()?;
+    let token = v["token"].as_str()?.to_string();
+    let token_type = v["tokenType"].as_str().unwrap_or("captcha").to_string();
+    if token.is_empty() {
+        return None;
     }
-    result
+    Some((token_type, token))
 }
 fn page_totp(daemon: Daemon) -> gtk4::Widget {
     let group = adw::PreferencesGroup::builder()

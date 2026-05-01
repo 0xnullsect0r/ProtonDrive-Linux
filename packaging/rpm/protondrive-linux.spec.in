@@ -11,8 +11,9 @@ Source0:        %{name}-%{version}.tar.gz
 BuildRequires:  gcc, make, golang, pkgconfig
 BuildRequires:  pkgconfig(gtk4), pkgconfig(libadwaita-1)
 BuildRequires:  pkgconfig(libsecret-1), pkgconfig(openssl)
+BuildRequires:  pkgconfig(webkit2gtk-4.1)
 BuildRequires:  systemd-rpm-macros
-Requires:       libsecret, gtk4, libadwaita
+Requires:       libsecret, gtk4, libadwaita, webkit2gtk4.1
 Recommends:     gnome-shell-extension-appindicator
 
 %description
@@ -27,11 +28,13 @@ icon for GNOME, KDE Plasma, Budgie and Cinnamon.
 
 %build
 cargo build --release --locked
+cd crates/protondrive-hv && cargo build --release
 
 %install
 install -Dm0755 target/release/protondrive       %{buildroot}%{_bindir}/protondrive
 install -Dm0755 target/release/protondrived      %{buildroot}%{_bindir}/protondrived
 install -Dm0755 target/release/protondrive-cli   %{buildroot}%{_bindir}/protondrive-cli
+install -Dm0755 crates/protondrive-hv/target/release/protondrive-hv %{buildroot}%{_bindir}/protondrive-hv
 # Go-CGO bridge .so produced by build.rs — installed into the libdir and
 # located at runtime via the rpath embedded in the binaries
 # (-Wl,-rpath,$ORIGIN/../lib).
@@ -49,6 +52,7 @@ install -Dm0644 packaging/tmpfiles.d/protondrive.conf                %{buildroot
 %{_bindir}/protondrive
 %{_bindir}/protondrived
 %{_bindir}/protondrive-cli
+%{_bindir}/protondrive-hv
 %{_libdir}/libprotonbridge.so
 %{_datadir}/applications/me.proton.drive.Linux.desktop
 %{_metainfodir}/me.proton.drive.Linux.metainfo.xml

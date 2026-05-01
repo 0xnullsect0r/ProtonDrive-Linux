@@ -19,6 +19,13 @@ cd "$ROOT"
 # version). All crate manifests use `version.workspace = true`.
 sed -i -E "0,/^version[[:space:]]*=.*/s//version = \"${V}\"/" Cargo.toml
 
+# protondrive-hv is a standalone workspace (not part of the main workspace),
+# so we update its Cargo.toml version separately.
+HV_TOML="$ROOT/crates/protondrive-hv/Cargo.toml"
+if [[ -f "$HV_TOML" ]]; then
+    sed -i -E "0,/^version[[:space:]]*=.*/s//version = \"${V}\"/" "$HV_TOML"
+fi
+
 # Cargo.lock: every [[package]] entry whose name starts with `protondrive-`
 # gets its version line rewritten. Use awk (always present) so this
 # works inside minimal containers that don't ship perl.

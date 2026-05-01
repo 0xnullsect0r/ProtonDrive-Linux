@@ -15,6 +15,7 @@ mkdir -p "$WORK/usr/bin" "$WORK/usr/share/applications" "$WORK/usr/share/metainf
 install -Dm0755 "$ROOT/target/release/protondrive"      "$WORK/usr/bin/protondrive"
 install -Dm0755 "$ROOT/target/release/protondrived"     "$WORK/usr/bin/protondrived"
 install -Dm0755 "$ROOT/target/release/protondrive-cli"  "$WORK/usr/bin/protondrive-cli"
+install -Dm0755 "$ROOT/target/release/protondrive-hv"   "$WORK/usr/bin/protondrive-hv"
 
 # Ship the Go-CGO bridge .so. The release-bins artifact stages it at
 # target/release/libprotonbridge.so; fall back to the build-tree copy if

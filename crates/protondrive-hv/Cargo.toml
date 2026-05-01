@@ -1,0 +1,18 @@
+[package]
+name = "protondrive-hv"
+version = "0.1.12"
+edition = "2021"
+description = "Human verification helper for ProtonDrive-Linux (internal subprocess)"
+
+# NOT part of the workspace — uses GTK3/webkit2gtk-4.1 which conflicts with GTK4
+[workspace]
+
+[[bin]]
+name = "protondrive-hv"
+path = "src/main.rs"
+
+[dependencies]
+webkit2gtk = { version = "2.0.2", features = ["v2_6", "v2_22"] }
+gtk = "0.18"
+glib = "0.18"
+javascriptcore-rs = "1.1"

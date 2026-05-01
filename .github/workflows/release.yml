@@ -92,13 +92,18 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             pkg-config build-essential \
             libgtk-4-dev libadwaita-1-dev \
-            libsecret-1-dev libssl-dev libdbus-1-dev
+            libsecret-1-dev libssl-dev libdbus-1-dev \
+            libwebkit2gtk-4.1-dev
       - uses: actions/setup-go@v5
         with: { go-version: '1.22' }
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: cargo build --release
+      - name: cargo build --release (workspace)
         run: cargo build --release --workspace --locked
+      - name: Build protondrive-hv (standalone GTK3 webview helper)
+        run: |
+          cd crates/protondrive-hv
+          cargo build --release
       - name: Stage Go bridge .so next to the binaries
         run: |
           SO=$(find target/release/build -maxdepth 4 -name libprotonbridge.so | head -n1)
@@ -115,6 +120,7 @@ jobs:
             target/release/protondrived
             target/release/protondrive-cli
             target/release/libprotonbridge.so
+            crates/protondrive-hv/target/release/protondrive-hv
 
   # ---------------------------------------------------------------------
   # 3. .deb (Debian/Ubuntu/Mint/Pop_OS!)
@@ -131,7 +137,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             pkg-config libgtk-4-dev libadwaita-1-dev \
-            libsecret-1-dev libssl-dev libdbus-1-dev
+            libsecret-1-dev libssl-dev libdbus-1-dev \
+            libwebkit2gtk-4.1-dev
       - uses: actions/setup-go@v5
         with: { go-version: '1.22' }
       - uses: dtolnay/rust-toolchain@stable
@@ -139,7 +146,14 @@ jobs:
       - name: Restore release binaries
         uses: actions/download-artifact@v4
         with: { name: release-bins-linux-x86_64, path: target/release }
-      - run: chmod +x target/release/protondrive*
+      - name: Stage binaries
+        run: |
+          chmod +x target/release/protondrive*
+          # protondrive-hv is nested under the crate subdirectory in the artifact
+          mkdir -p target/release
+          find target/release -name protondrive-hv -not -path 'target/release/protondrive-hv' \
+            -exec mv {} target/release/protondrive-hv \; 2>/dev/null || true
+          chmod +x target/release/protondrive-hv 2>/dev/null || true
       - name: Install cargo-deb
         run: cargo install --locked cargo-deb
       - name: Build .deb
@@ -242,12 +256,18 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libgtk-4-1 libadwaita-1-0 libsecret-1-0 \
             libgtk-4-dev libadwaita-1-dev \
+            libwebkit2gtk-4.1-0 libwebkit2gtk-4.1-dev \
             libgdk-pixbuf-2.0-0 libgdk-pixbuf2.0-bin librsvg2-common \
             file desktop-file-utils patchelf wget ca-certificates
       - name: Restore release binaries
         uses: actions/download-artifact@v4
         with: { name: release-bins-linux-x86_64, path: target/release }
-      - run: chmod +x target/release/protondrive*
+      - name: Stage binaries
+        run: |
+          chmod +x target/release/protondrive*
+          find target/release -name protondrive-hv -not -path 'target/release/protondrive-hv' \
+            -exec mv {} target/release/protondrive-hv \; 2>/dev/null || true
+          chmod +x target/release/protondrive-hv 2>/dev/null || true
       - name: Fetch linuxdeploy + GTK plugin
         run: |
           mkdir -p $HOME/.local/bin
