@@ -362,33 +362,31 @@ window.addEventListener("message", function(e) {{
 
     // Serve HTTP — handle GET / (HTML page) and POST /submit (token receiver).
     let mut result: Option<(String, String)> = None;
-    for stream in listener.incoming() {
-        if let Ok(mut stream) = stream {
-            let mut buf = vec![0u8; 8192];
-            let n = stream.read(&mut buf).unwrap_or(0);
-            let req = String::from_utf8_lossy(&buf[..n]);
-            let first_line = req.lines().next().unwrap_or("");
+    for mut stream in listener.incoming().flatten() {
+        let mut buf = vec![0u8; 8192];
+        let n = stream.read(&mut buf).unwrap_or(0);
+        let req = String::from_utf8_lossy(&buf[..n]);
+        let first_line = req.lines().next().unwrap_or("");
 
-            if first_line.starts_with("POST /submit") {
-                // Extract JSON body after the blank line.
-                let body = req.split("\r\n\r\n").nth(1).unwrap_or("").trim();
-                if let Ok(v) = serde_json::from_str::<serde_json::Value>(body) {
-                    let token = v["token"].as_str().unwrap_or("").to_string();
-                    let token_type = v["tokenType"].as_str().unwrap_or("captcha").to_string();
-                    result = Some((token_type, token));
-                }
-                let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok");
-                break;
-            } else if first_line.starts_with("GET /") {
-                let resp = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
-                    html.len(),
-                    html
-                );
-                let _ = stream.write_all(resp.as_bytes());
-            } else {
-                let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+        if first_line.starts_with("POST /submit") {
+            // Extract JSON body after the blank line.
+            let body = req.split("\r\n\r\n").nth(1).unwrap_or("").trim();
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(body) {
+                let token = v["token"].as_str().unwrap_or("").to_string();
+                let token_type = v["tokenType"].as_str().unwrap_or("captcha").to_string();
+                result = Some((token_type, token));
             }
+            let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok");
+            break;
+        } else if first_line.starts_with("GET /") {
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
+                html.len(),
+                html
+            );
+            let _ = stream.write_all(resp.as_bytes());
+        } else {
+            let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
         }
     }
     result
